@@ -17,8 +17,6 @@ import os
 import json
 import anthropic
 import gdown
-from matplotlib.patches import Rectangle
-import plotly.graph_objects as go
 
 # TensorFlow — loaded only if available
 try:
@@ -177,10 +175,10 @@ SAMPLE_DIR = "samples"
 GDRIVE_FILE_ID = os.environ.get("GDRIVE_FILE_ID", "")
 
 RISK_MAP = {
-    "Glioma": ("HIGH", "#ef4444", "risk-HIGH", "risk-dot-HIGH"),
-    "Meningioma": ("MODERATE", "#f97316", "risk-MODERATE", "risk-dot-MODERATE"),
-    "Pituitary Tumor": ("MODERATE", "#f97316", "risk-MODERATE", "risk-dot-MODERATE"),
-    "No Tumor": ("LOW", "#22c55e", "risk-LOW", "risk-dot-LOW"),
+    "Glioma": ("HIGH", "#ef4444"),
+    "Meningioma": ("MODERATE", "#f97316"),
+    "Pituitary Tumor": ("MODERATE", "#f97316"),
+    "No Tumor": ("LOW", "#22c55e"),
 }
 
 SAMPLE_OPTIONS = {
@@ -266,53 +264,6 @@ def create_color_gradcam(pil_img, heatmap, alpha=0.55):
     blended = (orig * (1 - alpha) + hm_colored * alpha).astype(np.uint8)
     
     return Image.fromarray(blended)
-
-def create_heatmap_with_contours(pil_img, heatmap):
-    """Create heatmap with contour lines showing attention boundaries"""
-    orig = np.array(pil_img.convert("RGB").resize(IMG_SIZE))
-    hm = cv2.resize(heatmap, IMG_SIZE)
-    
-    # Create figure
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    # 1. Original image
-    axes[0].imshow(orig)
-    axes[0].set_title("Original MRI", fontsize=12, fontweight='bold')
-    axes[0].axis('off')
-    
-    # 2. Heatmap overlay
-    axes[1].imshow(orig)
-    im = axes[1].imshow(hm, cmap='jet', alpha=0.55, vmin=0, vmax=1)
-    axes[1].set_title("Grad-CAM Attention Overlay\n(Red/Yellow = High Attention)", fontsize=12, fontweight='bold')
-    axes[1].axis('off')
-    plt.colorbar(im, ax=axes[1], fraction=0.046, label='Attention Intensity')
-    
-    # 3. Heatmap with contours (boundaries)
-    axes[2].imshow(orig)
-    axes[2].imshow(hm, cmap='jet', alpha=0.4, vmin=0, vmax=1)
-    
-    # Add contour lines at different thresholds
-    thresholds = [0.3, 0.5, 0.7]
-    colors = ['blue', 'orange', 'red']
-    for thr, color in zip(thresholds, colors):
-        contour = plt.contour(hm, levels=[thr], colors=color, linewidths=1.5, alpha=0.8)
-        if contour.collections:
-            axes[2].clabel(contour, inline=True, fontsize=8, fmt=f'{thr:.0%}')
-    
-    axes[2].set_title("Attention Contours\n(50% = Critical Region)", fontsize=12, fontweight='bold')
-    axes[2].axis('off')
-    
-    # Add legend for contours
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='none', edgecolor='blue', label='30% Attention'),
-        Patch(facecolor='none', edgecolor='orange', label='50% Attention'),
-        Patch(facecolor='none', edgecolor='red', label='70%+ Attention')
-    ]
-    axes[2].legend(handles=legend_elements, loc='upper right', fontsize=8)
-    
-    plt.tight_layout()
-    return fig
 
 def create_attention_metrics(heatmap):
     """Calculate attention metrics from Grad-CAM"""
@@ -458,20 +409,20 @@ def _mock_report(pred_class, confidence, attention_metrics=None):
     }
     return templates.get(pred_class, templates["No Tumor"])
 
-def pred_card_html(pred_class, confidence, risk_label, risk_css, dot_css):
+def pred_card_html(pred_class, confidence, risk_label, risk_color):
     return f"""
     <div class="pred-container">
-      <div class="pred-eyebrow">CNN · Predicted Diagnosis</div>
+      <div style="font-size: 0.7rem; opacity: 0.7;">CNN · Predicted Diagnosis</div>
       <div class="pred-class-name">{pred_class}</div>
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-family:'DM Mono',monospace;font-size:11px;color:#7a96bb;">Model Confidence</span>
-        <span class="pred-conf-text">{confidence:.1f}%</span>
+      <div style="margin: 1rem 0;">
+        <div style="opacity: 0.7;">Model Confidence</div>
+        <div style="font-size: 1.5rem; font-weight: 700;">{confidence:.1f}%</div>
+        <div style="background: #eef2fa; border-radius: 8px; height: 8px; margin-top: 0.5rem;">
+          <div style="background: linear-gradient(90deg, #1d4ed8, #0891b2); width: {confidence}%; height: 100%; border-radius: 8px;"></div>
+        </div>
       </div>
-      <div class="pred-conf-wrap">
-        <div class="pred-conf-bar" style="width:{confidence}%"></div>
-      </div>
-      <div class="risk-badge {risk_css}">
-        <span class="risk-dot {dot_css}"></span>
+      <div style="display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 6px; background: {risk_color}20; border: 1px solid {risk_color}; color: {risk_color};">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: {risk_color};"></span>
         {risk_label} RISK
       </div>
     </div>"""
@@ -602,11 +553,11 @@ if analyze and pil_image:
         pred_idx = int(np.argmax(preds))
         pred_class = CLASS_NAMES[pred_idx]
         confidence = float(preds[pred_idx]) * 100
-        risk_label, risk_color, risk_css, dot_css = RISK_MAP.get(pred_class, ("UNKNOWN", "#gray", "", ""))
+        risk_label, risk_color = RISK_MAP.get(pred_class, ("UNKNOWN", "#gray"))
     
     # Display prediction
     with col_output:
-        st.markdown(pred_card_html(pred_class, confidence, risk_label, risk_css, dot_css), unsafe_allow_html=True)
+        st.markdown(pred_card_html(pred_class, confidence, risk_label, risk_color), unsafe_allow_html=True)
         
         # Probability chart
         fig, ax = plt.subplots(figsize=(6, 2.5))
@@ -654,24 +605,23 @@ if analyze and pil_image:
             st.markdown(f"""
             <div style="background:{attention_metrics['attention_color']}20; 
                         padding:10px; border-radius:8px; text-align:center;">
-                <small>Model Confidence</small><br>
+                <small>Model Focus</small><br>
                 <strong>{attention_metrics['attention_level']}</strong>
             </div>
             """, unsafe_allow_html=True)
         
-        # Show detailed heatmap with contours
-        with st.expander("🔬 View Detailed Heatmap Analysis", expanded=False):
-            fig_contour = create_heatmap_with_contours(pil_image, heatmap)
-            st.pyplot(fig_contour, use_container_width=True)
-            plt.close()
-            
-            st.markdown("""
-            **Interpretation Guide:**
-            - 🔴 **Red/Orange regions** (70%+): Model's primary focus area
-            - 🟡 **Yellow regions** (50-70%): Secondary attention
-            - 🔵 **Blue regions** (30-50%): Peripheral attention
-            - ⚫ **Dark regions** (<30%): Not used for decision
-            """)
+        # Legend explanation
+        st.markdown("""
+        <div style="background:#f0f5ff; padding:10px; border-radius:8px; margin-top:10px;">
+            <small>
+            <strong>🔴 How to interpret:</strong><br>
+            • <span style="color:#ef4444">Red/Orange regions</span> = High attention (where the model is focusing)<br>
+            • <span style="color:#22c55e">Green/Yellow regions</span> = Medium attention<br>
+            • <span style="color:#3b82f6">Blue regions</span> = Low attention<br>
+            • <span style="color:#64748b">Dark regions</span> = Not used for decision
+            </small>
+        </div>
+        """, unsafe_allow_html=True)
     
     # AI Report
     st.markdown("---")
@@ -713,6 +663,6 @@ if analyze and pil_image:
             "gradcam_metrics": attention_metrics,
             "report": report
         }, indent=2),
-        file_name=f"neuroscan_report.json",
+        file_name="neuroscan_report.json",
         mime="application/json"
     )
