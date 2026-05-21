@@ -5,6 +5,7 @@
 A clinical-grade web application that classifies brain tumor MRI scans into four categories using a ResNet50V2 ensemble CNN, generates Grad-CAM explainability heatmaps showing which regions drove the prediction, and produces detailed AI-written clinical reports via the Anthropic Claude API.
 
 Built with Streamlit. Intended as a decision-support research tool and not a substitute for professional medical diagnosis.
+
 Demo: https://brain-tumor-prediction-mri-classifier.streamlit.app/
 
 ---
