@@ -598,16 +598,16 @@ div[data-testid="stInfo"]    { background: var(--info-bg) !important; border-col
     if (!btn) { setTimeout(wireToggle, 80); return; }
 
     // Set correct initial icon to match actual applied theme
-    btn.textContent = isDark ? '☀️' : '🌙';
-    btn.title       = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    //btn.textContent = isDark ? '☀️' : '🌙';
+    //btn.title       = isDark ? 'Switch to light mode' : 'Switch to dark mode';
 
-    btn.addEventListener('click', function() {
-      isDark = !isDark;
-      applyTheme(isDark);
-      localStorage.setItem('neuroscan-theme', isDark ? 'dark' : 'light');
-      btn.textContent = isDark ? '☀️' : '🌙';
-      btn.title       = isDark ? 'Switch to light mode' : 'Switch to dark mode';
-    });
+    //btn.addEventListener('click', function() {
+      //isDark = !isDark;
+      //applyTheme(isDark);
+      //localStorage.setItem('neuroscan-theme', isDark ? 'dark' : 'light');
+      //btn.textContent = isDark ? '☀️' : '🌙';
+      //btn.title       = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    //});
   }
 
   if (document.readyState === 'loading') {
