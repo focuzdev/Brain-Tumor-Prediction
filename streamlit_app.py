@@ -621,7 +621,7 @@ st.markdown("""
   <div class="hero-inner">
     <div class="hero-top">
       <div>
-        <h1 class="hero-h1">AI-Powered Brain Tumor<br>
+        <h1 class="hero-h1">NeuroScan Brain Tumor<br>
           <span class="grad">MRI Classification</span>
         </h1>
         <p class="hero-desc">
