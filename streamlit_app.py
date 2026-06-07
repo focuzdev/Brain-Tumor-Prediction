@@ -652,8 +652,7 @@ st.markdown("""
           <span class="grad">MRI Classification</span>
         </h1>
         <p class="hero-desc">
-          Upload any axial brain MRI and receive instant ResNet50V2
-          classification across 4 tumor types, complete with Grad-CAM
+          Upload any axial brain MRI and receive instant classification across 4 tumor types, complete with Grad-CAM
           heatmaps highlighting the exact regions that drove the prediction,
           plus an AI-generated clinical report.
         </p>
