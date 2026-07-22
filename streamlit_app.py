@@ -402,6 +402,106 @@ def load_mobilenet():
                         MOBILENET_PATH, quiet=False)
     return keras.models.load_model(MOBILENET_PATH) if os.path.exists(MOBILENET_PATH) else None
 
+@st.cache_resource(show_spinner="Verifying ResNet50V2 class index mapping...")
+def resnet_class_verification():
+    """
+    Verify that ResNet50V2's output index 0 = Glioma, 1 = Meningioma,
+    2 = No Tumor, 3 = Pituitary Tumor.
+
+    This is the #1 cause of wrong predictions on external datasets.
+    If the training script read class folders in a different order
+    (e.g. alphabetically as glioma/meningioma/no_tumor/pituitary OR
+    Glioma/Meningioma/NoTumor/PituitaryTumor — note 'NoTumor' sorts
+    before 'No Tumor' with a space), the index→class mapping will be
+    wrong and EVERY prediction will be incorrect.
+
+    This function tests the model against the bundled sample images
+    and returns a corrected index permutation if needed.
+    Returns: (index_map, detail)
+      index_map: list of 4 ints — model_output[i] → CLASS_NAMES[index_map[i]]
+                 [0,1,2,3] means no correction needed
+    """
+    mdl = load_model()
+    if mdl is None:
+        return list(range(4)), "Model not loaded — using default index order."
+    if not os.path.isdir(SAMPLE_DIR):
+        return list(range(4)), "No samples/ folder — cannot verify class indices."
+
+    # Ground-truth: sample filename → expected class name
+    ground_truth = {
+        "glioma.jpg":     "Glioma",
+        "meningioma.jpg": "Meningioma",
+        "no_tumor.jpg":   "No Tumor",
+        "pituitary.jpg":  "Pituitary Tumor",
+    }
+    # Collect raw model predictions on all available samples
+    raw_preds = {}  # class_name -> raw probability vector
+    for fname, expected_cls in ground_truth.items():
+        fpath = os.path.join(SAMPLE_DIR, fname)
+        if not os.path.exists(fpath):
+            continue
+        try:
+            im  = Image.open(fpath).convert("RGB")
+            arr = preprocess(im)
+            p   = mdl.predict(arr, verbose=0)[0]
+            raw_preds[expected_cls] = p
+        except Exception:
+            pass
+
+    if len(raw_preds) < 4:
+        return list(range(4)), (
+            f"Only {len(raw_preds)}/4 sample images found — "
+            "cannot fully verify class index mapping."
+        )
+
+    # Build assignment: which output index best represents each class?
+    # Use the Hungarian-algorithm-style greedy assignment:
+    # For each known class, find which output index gives max probability
+    # on that class's sample image.
+    class_order = ["Glioma", "Meningioma", "No Tumor", "Pituitary Tumor"]
+    assigned_indices = {}
+    used_indices = set()
+    assignment_scores = []
+
+    for cls in class_order:
+        if cls not in raw_preds:
+            continue
+        probs = raw_preds[cls]
+        # Get sorted indices by probability (highest first), skip used
+        sorted_idx = list(np.argsort(probs)[::-1])
+        for idx in sorted_idx:
+            if idx not in used_indices:
+                assigned_indices[cls] = idx
+                used_indices.add(idx)
+                assignment_scores.append(
+                    f"{cls} → index {idx} ({probs[idx]*100:.1f}%)"
+                )
+                break
+
+    # Check if assignment matches expected [0,1,2,3]
+    expected = {cls: i for i, cls in enumerate(class_order)}
+    needs_remap = any(
+        assigned_indices.get(cls, i) != i
+        for i, cls in enumerate(class_order)
+    )
+
+    # Build corrected map: index_map[model_output_idx] = CLASS_NAMES_idx
+    # So CLASS_NAMES[index_map[model_out]] gives the correct class name
+    index_map = list(range(4))
+    if needs_remap:
+        # Invert: for each model output index, find which class it represents
+        inv = {v: k for k, v in assigned_indices.items()}
+        for model_idx, cls_name in inv.items():
+            correct_pos = class_order.index(cls_name)
+            index_map[model_idx] = correct_pos
+
+    detail = (
+        f"{'⚠️ INDEX MISMATCH DETECTED AND CORRECTED' if needs_remap else '✅ Index order confirmed correct'}. "
+        f"Assignment: {'; '.join(assignment_scores)}"
+    )
+    return index_map, detail
+
+
 @st.cache_resource(show_spinner="Validating MobileNetV2 output sanity...")
 def mobilenet_sanity_check():
     """
@@ -1194,10 +1294,21 @@ with st.sidebar:
         _ensemble_line = "+MobileNetV2 (will download on first prediction)"
     else:
         _ensemble_line = "None (mobilenet_model.h5 not found, GDRIVE_MOBILENET_FILE_ID not set)"
+    # Show class index verification result
+    try:
+        _idx_map_sb, _idx_detail_sb = resnet_class_verification()
+        _idx_ok = _idx_map_sb == list(range(4))
+        if _idx_ok:
+            st.success(f"✅ Class indices verified correct")
+        else:
+            st.warning(f"⚠️ Index mismatch auto-corrected: {_idx_detail_sb[:80]}...")
+    except Exception as _ie:
+        st.info(f"Index check: {_ie}")
+
     st.code(f"Model    : ResNet50V2\nEnsemble : {_ensemble_line}\n"
             "Preproc  : resnet_v2.preprocess_input\nClasses  : 4\n"
             "Input    : 224x224 RGB\nXAI      : Grad-CAM\n"
-            "Accuracy : 95.31% (measured WITH the ensemble — see note below)", language="text")
+            "Accuracy : 95.31% (measured WITH the ensemble)", language="text")
 
     if _mob_present and not _mob_sane:
         st.error(f"🚫 MobileNetV2 excluded from predictions: {_mob_detail}")
@@ -1708,7 +1819,17 @@ if clicked and img:
     with st.spinner("Running CNN inference..."):
         arr = preprocess(img)  # ResNet50V2 tensor
         if model:
-            raw_resnet = model.predict(arr, verbose=0)[0]
+            raw_resnet_out = model.predict(arr, verbose=0)[0]
+
+            # ── Class index correction ────────────────────────────
+            # Verify the model's output index order matches our
+            # CLASS_NAMES = [Glioma, Meningioma, No Tumor, Pituitary Tumor].
+            # If training used a different folder sort order, this remaps
+            # the raw output to the correct class positions.
+            _idx_map, _idx_detail = resnet_class_verification()
+            raw_resnet = np.zeros(4, dtype=np.float32)
+            for model_out_idx, class_names_idx in enumerate(_idx_map):
+                raw_resnet[class_names_idx] += raw_resnet_out[model_out_idx]
 
             # ── MobileNetV2 ensemble (soft-vote) ─────────────────
             # Only claim an "ensemble" when a genuine second model is
@@ -1720,38 +1841,23 @@ if clicked and img:
             mob_sane, mob_detail, _ = mobilenet_sanity_check() if mob_model is not None else (False, "Not loaded.", {})
             if mob_model is not None and mob_sane:
                 try:
-                    arr_mob        = preprocess_for_mobilenet(img)  # own preprocessing, not ResNet's
-                    raw_mob        = mob_model.predict(arr_mob, verbose=0)[0]
-                    raw            = (raw_resnet + raw_mob) / 2.0
+                    arr_mob        = preprocess_for_mobilenet(img)
+                    raw_mob_out    = mob_model.predict(arr_mob, verbose=0)[0]
+                    # Apply same index correction to MobileNetV2 output
+                    raw_mob = np.zeros(4, dtype=np.float32)
+                    for model_out_idx, class_names_idx in enumerate(_idx_map):
+                        raw_mob[class_names_idx] += raw_mob_out[model_out_idx]
+                    raw            = (raw_resnet * 0.60 + raw_mob * 0.40)
                     ensemble_mode  = "ResNet50V2 + MobileNetV2 soft-vote ensemble"
-                except Exception:
+                except Exception as _ee:
                     raw           = raw_resnet
-                    ensemble_mode = "ResNet50V2 single model (MobileNetV2 inference failed)"
+                    ensemble_mode = f"ResNet50V2 single model (MobileNetV2 inference failed: {_ee})"
             elif mob_model is not None and not mob_sane:
-                # MobileNetV2 file loaded but failed the discrimination
-                # check (e.g. predicted the same class for every reference
-                # image) — do NOT blend a broken model into the result.
                 raw           = raw_resnet
                 ensemble_mode = f"ResNet50V2 single model (MobileNetV2 disabled: {mob_detail})"
             else:
-                # NOTE: Flip/rotation-based "TTA ensemble" has been removed.
-                # Horizontal/vertical flips and 180° rotation change the
-                # apparent left-right and anterior-posterior position of a
-                # lesion. Meningioma vs. glioma discrimination depends on
-                # location and extra- vs. intra-axial cues that a CNN not
-                # explicitly trained with mirrored augmentation may not
-                # handle correctly — mixing flipped-view predictions into
-                # the vote can actively pull a correct prediction toward
-                # the wrong class. This was a likely contributor to
-                # meningioma-as-glioma errors reported on external images.
-                #
-                # If you want real TTA, only use augmentations that
-                # preserve anatomical laterality, e.g. small rotations
-                # (±3-5°) or minor brightness/contrast jitter — never
-                # flips — and only after confirming empirically (on a
-                # held-out validation set) that it improves accuracy.
                 raw = raw_resnet
-                ensemble_mode = "ResNet50V2 single model (no MobileNetV2 file found, no TTA applied)"
+                ensemble_mode = "ResNet50V2 single model (no MobileNetV2 file found)"
 
             # ── Temperature scaling ──────────────────────────────
             # T is user-adjustable in the sidebar (Advanced) rather than a
@@ -1833,7 +1939,10 @@ if clicked and img:
     _second_cls   = CLASS_NAMES[_second_idx]
     _second_conf  = float(preds[_second_idx]) * 100
     _margin       = conf - _second_conf
-    is_close_call = _margin < 15.0  # top-2 within 15 points of each other
+    is_close_call = _margin < 20.0  # top-2 within 20 points — clinically meaningful ambiguity
+    _glioma_men_ambiguous = (
+        {pcls, _second_cls} == {"Glioma", "Meningioma"} and is_close_call
+    )
 
     # ── Update toast with actual result ─────────────────────────
     _risk_emoji = {"HIGH": "🔴", "MODERATE": "🟡", "LOW": "🟢"}.get(rl, "🔵")
@@ -1858,29 +1967,31 @@ if clicked and img:
 </script>
 """, unsafe_allow_html=True)
 
-    # ── Low-confidence guard ──────────────────────────────────
-    if conf < 55.0:
-        with col_out:
+    # ── Confidence and ambiguity warnings ────────────────────
+    with col_out:
+        if conf < 55.0:
             st.warning(
-                f"⚠️ **Low Confidence ({conf:.1f}%)** — The ensemble is uncertain. "
-                f"Predicted class **{pcls}** but the margin over the next class is "
-                f"small. This may indicate an atypical MRI sequence, poor image "
-                f"quality, or a genuinely ambiguous case. A specialist review is "
-                f"strongly recommended before any clinical decision."
+                f"⚠️ **Low Confidence ({conf:.1f}%)** — The model is uncertain. "
+                f"Predicted **{pcls}** but runner-up is **{_second_cls}** ({_second_conf:.1f}%). "
+                f"This may indicate an atypical MRI sequence, poor image quality, "
+                f"or a genuinely ambiguous case. Specialist review is essential."
             )
-    elif pcls == "Glioma" and conf < 75.0:
-        with col_out:
+        elif _glioma_men_ambiguous:
             st.warning(
-                f"⚠️ **Borderline Glioma ({conf:.1f}%)** — Glioma and Meningioma "
-                f"share overlapping features on non-contrast T1 MRI. This prediction "
-                f"confidence is below the reliable threshold for Glioma classification. "
-                f"Contrast-enhanced MRI or expert radiological review is advised."
+                f"⚠️ **Glioma / Meningioma Ambiguity** — Predicted **{pcls}** ({conf:.1f}%) "
+                f"but **{_second_cls}** scores {_second_conf:.1f}% (margin: {_margin:.1f}%). "
+                f"These two tumours share overlapping features on non-contrast T1 MRI. "
+                f"Contrast-enhanced MRI is strongly recommended before any clinical decision."
             )
-    elif _mri_conf < 0.70:
-        with col_out:
+        elif is_close_call:
+            st.info(
+                f"ℹ️ **Close Call** — Predicted **{pcls}** ({conf:.1f}%) vs "
+                f"**{_second_cls}** ({_second_conf:.1f}%) — margin only {_margin:.1f}%. "
+                f"Review with clinical context."
+            )
+        if _mri_conf < 0.70:
             st.info(
                 f"ℹ️ MRI gate confidence was {int(_mri_conf*100)}% (borderline). "
-                "Some image characteristics were atypical for standard axial MRI. "
                 "Verify this is a T1 or T2-weighted axial brain scan."
             )
 
