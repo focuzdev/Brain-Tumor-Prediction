@@ -1,8 +1,7 @@
 """
 NeuroScan AI - Brain Tumor MRI Classification
 ================================================================
-FULLY WORKING VERSION - No TensorFlow required
-Proper MRI validation + Sample images + Fixed JSON
+FULLY WORKING VERSION - Proper MRI validation + Theme fix
 """
 
 import streamlit as st
@@ -28,8 +27,18 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Initialize theme
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
+
+# Handle theme toggle from query params
+theme_param = st.query_params.get("theme", None)
+if theme_param in ["light", "dark"]:
+    if st.session_state.theme != theme_param:
+        st.session_state.theme = theme_param
+        st.query_params.clear()
+        st.rerun()
+
 _dk = (st.session_state.theme == "dark")
 
 # ================================================================
@@ -39,7 +48,6 @@ CLASS_NAMES = ["Glioma", "Meningioma", "No Tumor", "Pituitary Tumor"]
 CLASS_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#a855f7"]
 IMG_SIZE = (224, 224)
 
-# Sample images - will be generated if not present
 SAMPLE_DIR = "samples"
 SAMPLE_FILES = {
     "Glioma": "glioma.jpg",
@@ -63,31 +71,17 @@ def create_sample_images():
     if not os.path.exists(SAMPLE_DIR):
         os.makedirs(SAMPLE_DIR)
     
-    # Sample image patterns
     samples = {
-        "glioma.jpg": {
-            "type": "glioma",
-            "description": "Irregular mass with edema"
-        },
-        "meningioma.jpg": {
-            "type": "meningioma",
-            "description": "Well-defined dural mass"
-        },
-        "pituitary.jpg": {
-            "type": "pituitary",
-            "description": "Sellar mass"
-        },
-        "no_tumor.jpg": {
-            "type": "normal",
-            "description": "Normal brain"
-        }
+        "glioma.jpg": "glioma",
+        "meningioma.jpg": "meningioma",
+        "pituitary.jpg": "pituitary",
+        "no_tumor.jpg": "normal"
     }
     
-    for fname, info in samples.items():
+    for fname, tumor_type in samples.items():
         fpath = os.path.join(SAMPLE_DIR, fname)
         if not os.path.exists(fpath):
-            # Generate synthetic MRI-like image
-            img = generate_sample_mri(info["type"])
+            img = generate_sample_mri(tumor_type)
             img.save(fpath, "JPEG", quality=85)
 
 def generate_sample_mri(tumor_type):
@@ -101,40 +95,32 @@ def generate_sample_mri(tumor_type):
         for j in range(size):
             dist = np.sqrt(((i - center_y) / (size*0.4))**2 + ((j - center_x) / (size*0.35))**2)
             if dist <= 1:
-                # Brain tissue
                 intensity = 128 + 80 * (1 - dist) + np.random.randint(-20, 20)
                 img[i, j] = np.clip(intensity, 0, 255)
             else:
-                # Background (dark)
                 img[i, j] = np.random.randint(0, 30)
     
     # Add tumor if not normal
     if tumor_type == "glioma":
-        # Irregular mass in frontal region
         cy, cx = int(size*0.35), int(size*0.65)
         for i in range(size):
             for j in range(size):
                 dist = np.sqrt(((i - cy) / (size*0.12))**2 + ((j - cx) / (size*0.15))**2)
                 if dist <= 1:
                     img[i, j] = np.clip(img[i, j] + 100 + np.random.randint(-20, 20), 0, 255)
-        # Add edema (halo)
         for i in range(size):
             for j in range(size):
                 dist = np.sqrt(((i - cy) / (size*0.20))**2 + ((j - cx) / (size*0.25))**2)
                 if 1 < dist <= 1.8:
                     img[i, j] = np.clip(img[i, j] + 40 + np.random.randint(-10, 10), 0, 255)
-    
     elif tumor_type == "meningioma":
-        # Well-defined mass along edge
         cy, cx = int(size*0.4), int(size*0.75)
         for i in range(size):
             for j in range(size):
                 dist = np.sqrt(((i - cy) / (size*0.10))**2 + ((j - cx) / (size*0.12))**2)
                 if dist <= 1:
                     img[i, j] = np.clip(img[i, j] + 120 + np.random.randint(-15, 15), 0, 255)
-    
     elif tumor_type == "pituitary":
-        # Central sellar mass
         cy, cx = int(size*0.5), int(size*0.5)
         for i in range(size):
             for j in range(size):
@@ -142,187 +128,259 @@ def generate_sample_mri(tumor_type):
                 if dist <= 1:
                     img[i, j] = np.clip(img[i, j] + 130 + np.random.randint(-15, 15), 0, 255)
     
-    # Apply Gaussian blur for realistic look
     img = cv2.GaussianBlur(img, (3, 3), 0)
-    
-    # Convert to PIL and colorize slightly
     img_rgb = np.stack([img, img, img], axis=-1)
-    # Add slight color variation (MRI-like)
     img_rgb[:, :, 0] = np.clip(img_rgb[:, :, 0] + np.random.randint(-5, 5), 0, 255)
     img_rgb[:, :, 2] = np.clip(img_rgb[:, :, 2] + np.random.randint(-5, 5), 0, 255)
     
     return Image.fromarray(img_rgb.astype(np.uint8), "RGB")
 
-# Create sample images
 create_sample_images()
 
 # ================================================================
-# COMPLETE CSS
+# CSS - FIXED THEME SUPPORT
 # ================================================================
-st.markdown("""
+# Colors based on theme
+bg_color = "#0a0e1a" if _dk else "#f0f4fa"
+text_color = "#e2e8f0" if _dk else "#0a1628"
+card_bg = "rgba(14,30,70,.82)" if _dk else "rgba(230,242,252,.92)"
+card_border = "rgba(56,189,248,.22)" if _dk else "rgba(56,189,248,.40)"
+glass_bg = "rgba(255,255,255,.03)" if _dk else "rgba(255,255,255,.85)"
+glass_border = "rgba(255,255,255,.075)" if _dk else "rgba(56,189,248,.20)"
+nav_bg = "rgba(10,14,26,.95)" if _dk else "rgba(255,255,255,.95)"
+nav_border = "rgba(56,189,248,.15)" if _dk else "rgba(56,189,248,.20)"
+chip_bg = "rgba(56,189,248,.10)" if _dk else "rgba(56,189,248,.08)"
+
+st.markdown(f"""
 <style>
-*{box-sizing:border-box}
-.stApp{background:#0a0e1a !important;color:#e2e8f0 !important;min-height:100vh}
-#MainMenu,footer,header{visibility:hidden}
-.block-container{padding:0 !important;max-width:100% !important}
+*{{box-sizing:border-box}}
+.stApp{{
+  background:{bg_color} !important;
+  color:{text_color} !important;
+  min-height:100vh;
+}}
+#MainMenu,footer,header{{visibility:hidden}}
+.block-container{{padding:0 !important;max-width:100% !important}}
 
-.topnav{position:sticky;top:0;z-index:200;background:rgba(10,14,26,.95);backdrop-filter:blur(24px);border-bottom:1px solid rgba(56,189,248,.15);padding:.8rem 2.4rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
-.nav-brand{display:flex;align-items:center;gap:13px}
-.nav-logo{width:38px;height:38px;border-radius:10px;font-size:18px;background:linear-gradient(135deg,#1e40af,#0e7490);display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(56,189,248,.4);flex-shrink:0}
-.nav-name{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:#e2e8f0;letter-spacing:-.3px}
-.nav-name span{color:#38bdf8}
-.nav-tagline{font-family:'DM Mono',monospace;font-size:8px;color:rgba(255,255,255,.45);letter-spacing:.15em;text-transform:uppercase;margin-top:1px}
-.nav-right{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.chip{font-family:'DM Mono',monospace;font-size:9px;font-weight:500;padding:4px 10px;border-radius:20px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
-.c-blue{background:rgba(59,130,246,.14);color:#93c5fd;border:1px solid rgba(59,130,246,.28)}
-.c-teal{background:rgba(20,184,166,.14);color:#5eead4;border:1px solid rgba(20,184,166,.28)}
-.c-green{background:rgba(34,197,94,.14);color:#86efac;border:1px solid rgba(34,197,94,.28)}
-.c-amber{background:rgba(245,158,11,.14);color:#fcd34d;border:1px solid rgba(245,158,11,.28)}
-.c-purple{background:rgba(139,92,246,.14);color:#c4b5fd;border:1px solid rgba(139,92,246,.28)}
-.c-red{background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.28)}
+.topnav{{
+  position:sticky;top:0;z-index:200;
+  background:{nav_bg};
+  backdrop-filter:blur(24px);
+  border-bottom:1px solid {nav_border};
+  padding:.8rem 2.4rem;
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+}}
+.nav-brand{{display:flex;align-items:center;gap:13px}}
+.nav-logo{{width:38px;height:38px;border-radius:10px;font-size:18px;background:linear-gradient(135deg,#1e40af,#0e7490);display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(56,189,248,.4);flex-shrink:0}}
+.nav-name{{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:{text_color};letter-spacing:-.3px}}
+.nav-name span{{color:#38bdf8}}
+.nav-tagline{{font-family:'DM Mono',monospace;font-size:8px;color:{"rgba(255,255,255,.45)" if _dk else "#4a6580"};letter-spacing:.15em;text-transform:uppercase;margin-top:1px}}
+.nav-right{{display:flex;gap:6px;flex-wrap:wrap;align-items:center}}
 
-.hero{position:relative;overflow:hidden;padding:3rem 0 2.5rem;background:linear-gradient(130deg,#040c1c 0%,#071630 55%,#040c1c 100%);border-bottom:1px solid rgba(56,189,248,.09)}
-.hero-inner{position:relative;z-index:1;width:100%;padding:0 2.8rem}
-.hero-top{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:1.5rem}
-.hero-h1{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.9rem,3.5vw,3rem);font-weight:700;color:#e2e8f0;letter-spacing:-.7px;line-height:1.13;margin-bottom:.5rem}
-.hero-h1 .grad{background:linear-gradient(92deg,#38bdf8 0%,#818cf8 48%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.hero-desc{font-size:15px;color:rgba(255,255,255,.7);line-height:1.74;max-width:530px}
-.hero-stats{display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-end}
-.hs{text-align:right}
-.hs-n{font-family:'Space Grotesk',sans-serif;font-size:27px;font-weight:700;background:linear-gradient(92deg,#38bdf8,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}
-.hs-l{font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.12em;margin-top:3px}
-.hero-div{height:1px;margin:1.2rem 0;background:linear-gradient(90deg,rgba(56,189,248,.3),rgba(129,140,248,.18),transparent)}
-.pipeline{display:flex;align-items:center;gap:0;flex-wrap:wrap}
-.pip-step{display:flex;align-items:center;gap:9px}
-.pip-num{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#0891b2);font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(56,189,248,.32);flex-shrink:0}
-.pip-txt{font-size:11.5px;color:rgba(255,255,255,.65);line-height:1.38}
-.pip-txt strong{color:rgba(255,255,255,.9);display:block;font-size:11px}
-.pip-arr{color:rgba(56,189,248,.4);font-size:20px;padding:0 10px}
+.chip{{
+  font-family:'DM Mono',monospace;font-size:9px;font-weight:500;
+  padding:4px 10px;border-radius:20px;letter-spacing:.06em;
+  text-transform:uppercase;white-space:nowrap;
+  background:{chip_bg};
+  color:{text_color};
+  border:1px solid {card_border};
+}}
+.theme-toggle{{
+  width:34px;height:34px;border-radius:50%;
+  background:{"rgba(28,38,68,.85)" if _dk else "#daeeff"};
+  border:1px solid {"rgba(56,189,248,.50)" if _dk else "#4a9ab8"};
+  color:{"#7dd3fc" if _dk else "#084e65"};
+  font-size:16px;line-height:1;cursor:pointer;flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 10px rgba(0,0,0,.15);
+  transition:background .18s,transform .18s !important;
+}}
+.theme-toggle:hover{{
+  background:{"rgba(56,189,248,.25)" if _dk else "#b8dff0"};
+  transform:scale(1.12) rotate(14deg);
+}}
 
-.wrap{width:100%;padding:2rem 2.8rem 4rem}
-.glass{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.075);border-radius:20px;padding:1.8rem 2rem;backdrop-filter:blur(12px);box-shadow:0 8px 40px rgba(0,0,0,.35)}
-.slbl{font-family:'DM Mono',monospace;font-size:11px;color:rgba(56,189,248,.8);text-transform:uppercase;letter-spacing:.17em;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.slbl::after{content:'';flex:1;height:1px;background:rgba(56,189,248,.2)}
+.hero{{
+  position:relative;overflow:hidden;padding:3rem 0 2.5rem;
+  background:linear-gradient(130deg,{"#040c1c" if _dk else "#daeeff"} 0%,{"#071630" if _dk else "#c4e0f8"} 55%,{"#040c1c" if _dk else "#daeeff"} 100%);
+  border-bottom:1px solid {nav_border};
+}}
+.hero-inner{{position:relative;z-index:1;width:100%;padding:0 2.8rem}}
+.hero-top{{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:1.5rem}}
+.hero-h1{{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.9rem,3.5vw,3rem);font-weight:700;color:{text_color};letter-spacing:-.7px;line-height:1.13;margin-bottom:.5rem}}
+.hero-h1 .grad{{background:linear-gradient(92deg,#38bdf8 0%,#818cf8 48%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
+.hero-desc{{font-size:15px;color:{"rgba(255,255,255,.7)" if _dk else "#2d4a6b"};line-height:1.74;max-width:530px}}
+.hero-stats{{display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-end}}
+.hs{{text-align:right}}
+.hs-n{{font-family:'Space Grotesk',sans-serif;font-size:27px;font-weight:700;background:linear-gradient(92deg,#38bdf8,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}}
+.hs-l{{font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.55)" if _dk else "#2d4a6b"};text-transform:uppercase;letter-spacing:.12em;margin-top:3px}}
+.hero-div{{height:1px;margin:1.2rem 0;background:linear-gradient(90deg,rgba(56,189,248,.3),rgba(129,140,248,.18),transparent)}}
+.pipeline{{display:flex;align-items:center;gap:0;flex-wrap:wrap}}
+.pip-step{{display:flex;align-items:center;gap:9px}}
+.pip-num{{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#0891b2);font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(56,189,248,.32);flex-shrink:0}}
+.pip-txt{{font-size:11.5px;color:{"rgba(255,255,255,.65)" if _dk else "#2d4a6b"};line-height:1.38}}
+.pip-txt strong{{color:{"rgba(255,255,255,.9)" if _dk else "#0a1628"};display:block;font-size:11px}}
+.pip-arr{{color:{"rgba(56,189,248,.4)" if _dk else "#4a8fa8"};font-size:20px;padding:0 10px}}
 
-.pred-card{background:linear-gradient(135deg,rgba(14,30,70,.82),rgba(8,20,48,.92));border:1px solid rgba(56,189,248,.22);border-radius:18px;padding:1.5rem 1.6rem;margin-bottom:14px;position:relative;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.25)}
-.pred-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#1d4ed8,#0891b2,#38bdf8,#818cf8)}
-.pred-eyebrow{font-family:'DM Mono',monospace;font-size:9px;color:rgba(56,189,248,.8);text-transform:uppercase;letter-spacing:.18em;margin-bottom:8px}
-.pred-name{font-family:'Space Grotesk',sans-serif;font-size:clamp(30px,4vw,44px);font-weight:700;color:#f8fafc;letter-spacing:-1px;line-height:1.04;margin-bottom:15px}
-.conf-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
-.conf-l{font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.55)}
-.conf-v{font-family:'Space Grotesk',sans-serif;font-size:14px;color:#38bdf8;font-weight:600}
-.conf-track{background:rgba(255,255,255,.1);border-radius:8px;height:6px;overflow:hidden;margin-bottom:15px}
-.conf-fill{height:100%;border-radius:8px;background:linear-gradient(90deg,#1d4ed8,#0891b2,#38bdf8)}
-.risk-chip{display:inline-flex;align-items:center;gap:7px;padding:6px 15px;border-radius:20px;font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
-.rdot{width:6px;height:6px;border-radius:50%}
-.rH{background:rgba(239,68,68,.13);color:#dc2626;border:1px solid rgba(239,68,68,.35)}
-.rdH{background:#ef4444;box-shadow:0 0 7px rgba(239,68,68,.5)}
-.rM{background:rgba(245,158,11,.13);color:#d97706;border:1px solid rgba(245,158,11,.35)}
-.rdM{background:#f59e0b;box-shadow:0 0 7px rgba(245,158,11,.5)}
-.rL{background:rgba(34,197,94,.13);color:#16a34a;border:1px solid rgba(34,197,94,.35)}
-.rdL{background:#22c55e;box-shadow:0 0 7px rgba(34,197,94,.5)}
+.wrap{{width:100%;padding:2rem 2.8rem 4rem}}
+.glass{{
+  background:{glass_bg};
+  border:1px solid {glass_border};
+  border-radius:20px;padding:1.8rem 2rem;
+  backdrop-filter:blur(12px);
+  box-shadow:0 8px 40px {"rgba(0,0,0,.35)" if _dk else "rgba(10,22,80,.08)"};
+}}
+.slbl{{font-family:'DM Mono',monospace;font-size:11px;color:rgba(56,189,248,.8);text-transform:uppercase;letter-spacing:.17em;margin-bottom:12px;display:flex;align-items:center;gap:8px}}
+.slbl::after{{content:'';flex:1;height:1px;background:rgba(56,189,248,.2)}}
 
-.hm-section{background:rgba(2,6,14,.97);border:1px solid rgba(56,189,248,.2);border-radius:22px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.45);margin:1.8rem 0}
-.hm-header{background:rgba(4,10,24,1);border-bottom:1px solid rgba(56,189,248,.12);padding:1.1rem 1.7rem;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px}
-.hm-title{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;color:#e2e8f0;letter-spacing:-.3px}
-.hm-sub{font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.13em;margin-top:3px}
-.hm-legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.hm-leg{display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,.6)}
-.hm-swatch{width:28px;height:9px;border-radius:3px}
-.hm-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid rgba(255,255,255,.08)}
-.hm-stat{padding:13px 16px;border-right:1px solid rgba(255,255,255,.08);text-align:center}
-.hm-stat:last-child{border-right:none}
-.hm-sv{font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:600;color:#38bdf8;line-height:1}
-.hm-sl{font-family:'DM Mono',monospace;font-size:8.5px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.1em;margin-top:4px}
-.hm-col-lbl{font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.13em;text-align:center;margin-bottom:8px}
-.hm-col-note{font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,.45);text-align:center;margin-top:8px;line-height:1.6}
-.hm-img-frame{border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.1);box-shadow:0 4px 16px rgba(0,0,0,.4)}
-.cscale{background:rgba(255,255,255,.025);margin:0 1.6rem 1.4rem;border-radius:8px;padding:9px 13px;border:1px solid rgba(255,255,255,.08)}
-.cscale-bar{height:12px;border-radius:3px;background:linear-gradient(90deg,#00007f 0%,#0000ff 12%,#007fff 24%,#00ffff 36%,#7fff7f 50%,#ffff00 64%,#ff7f00 76%,#ff0000 88%,#7f0000 100%);margin-bottom:5px}
-.cscale-lbls{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:8.5px;color:rgba(255,255,255,.5)}
-.hm-explain{background:rgba(255,255,255,.025);border-top:1px solid rgba(255,255,255,.08);padding:1.3rem 1.7rem}
-.hm-exp-title{font-family:'DM Mono',monospace;font-size:9px;color:rgba(56,189,248,.8);text-transform:uppercase;letter-spacing:.15em;margin-bottom:12px}
-.hm-exp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
-.hm-exp-item{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 14px}
-.hm-exp-t{font-family:'DM Mono',monospace;font-size:9px;color:#38bdf8;margin-bottom:5px;font-weight:500}
-.hm-exp-b{font-size:13px;color:rgba(255,255,255,.8);line-height:1.65}
+.pred-card{{
+  background:linear-gradient(135deg,{"rgba(14,30,70,.82)" if _dk else "#daeeff"},{"rgba(8,20,48,.92)" if _dk else "#cce5f8"});
+  border:1px solid {card_border};
+  border-radius:18px;padding:1.5rem 1.6rem;margin-bottom:14px;
+  position:relative;overflow:hidden;
+  box-shadow:0 12px 40px {"rgba(0,0,0,.25)" if _dk else "rgba(10,22,80,.10)"};
+}}
+.pred-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#1d4ed8,#0891b2,#38bdf8,#818cf8)}}
+.pred-eyebrow{{font-family:'DM Mono',monospace;font-size:9px;color:rgba(56,189,248,.8);text-transform:uppercase;letter-spacing:.18em;margin-bottom:8px}}
+.pred-name{{font-family:'Space Grotesk',sans-serif;font-size:clamp(30px,4vw,44px);font-weight:700;color:{"#f8fafc" if _dk else "#0a1628"};letter-spacing:-1px;line-height:1.04;margin-bottom:15px}}
+.conf-row{{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}}
+.conf-l{{font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "#2d4a6b"}}}
+.conf-v{{font-family:'Space Grotesk',sans-serif;font-size:14px;color:#38bdf8;font-weight:600}}
+.conf-track{{background:{"rgba(255,255,255,.1)" if _dk else "#b8d8ec"};border-radius:8px;height:6px;overflow:hidden;margin-bottom:15px}}
+.conf-fill{{height:100%;border-radius:8px;background:linear-gradient(90deg,#1d4ed8,#0891b2,#38bdf8)}}
+.risk-chip{{display:inline-flex;align-items:center;gap:7px;padding:6px 15px;border-radius:20px;font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}}
+.rdot{{width:6px;height:6px;border-radius:50%}}
+.rH{{background:rgba(239,68,68,.13);color:#dc2626;border:1px solid rgba(239,68,68,.35)}}
+.rdH{{background:#ef4444;box-shadow:0 0 7px rgba(239,68,68,.5)}}
+.rM{{background:rgba(245,158,11,.13);color:#d97706;border:1px solid rgba(245,158,11,.35)}}
+.rdM{{background:#f59e0b;box-shadow:0 0 7px rgba(245,158,11,.5)}}
+.rL{{background:rgba(34,197,94,.13);color:#16a34a;border:1px solid rgba(34,197,94,.35)}}
+.rdL{{background:#22c55e;box-shadow:0 0 7px rgba(34,197,94,.5)}}
 
-.rb{border-left:3px solid rgba(147,197,253,.55);background:rgba(255,255,255,.028);border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:12px}
-.rb-red{border-left-color:rgba(248,113,113,.8);background:rgba(239,68,68,.08)}
-.rb-yel{border-left-color:rgba(251,191,36,.8);background:rgba(245,158,11,.08)}
-.rb-grn{border-left-color:rgba(52,211,153,.8);background:rgba(16,185,129,.08)}
-.rb-t{font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.14em;margin-bottom:7px}
-.rb-b{font-size:14px;line-height:1.9;color:rgba(255,255,255,.88)}
+.hm-section{{
+  background:{"rgba(2,6,14,.97)" if _dk else "#f4faff"};
+  border:1px solid {card_border};
+  border-radius:22px;overflow:hidden;
+  box-shadow:0 8px 32px {"rgba(0,0,0,.45)" if _dk else "rgba(10,22,80,.08)"};
+  margin:1.8rem 0
+}}
+.hm-header{{
+  background:{"rgba(4,10,24,1)" if _dk else "#daeeff"};
+  border-bottom:1px solid {"rgba(56,189,248,.12)" if _dk else "#a8cfe0"};
+  padding:1.1rem 1.7rem;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px
+}}
+.hm-title{{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;color:{text_color};letter-spacing:-.3px}}
+.hm-sub{{font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.45)" if _dk else "#2d4a6b"};text-transform:uppercase;letter-spacing:.13em;margin-top:3px}}
+.hm-legend{{display:flex;align-items:center;gap:12px;flex-wrap:wrap}}
+.hm-leg{{display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.6)" if _dk else "#1a3550"}}}
+.hm-swatch{{width:28px;height:9px;border-radius:3px}}
+.hm-stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid {"rgba(255,255,255,.08)" if _dk else "#b8d8ec"}}}
+.hm-stat{{padding:13px 16px;border-right:1px solid {"rgba(255,255,255,.08)" if _dk else "#b8d8ec"};text-align:center}}
+.hm-stat:last-child{{border-right:none}}
+.hm-sv{{font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:600;color:#38bdf8;line-height:1}}
+.hm-sl{{font-family:'DM Mono',monospace;font-size:8.5px;color:{"rgba(255,255,255,.45)" if _dk else "#2d4a6b"};text-transform:uppercase;letter-spacing:.1em;margin-top:4px}}
+.hm-col-lbl{{font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.55)" if _dk else "#1a3550"};text-transform:uppercase;letter-spacing:.13em;text-align:center;margin-bottom:8px}}
+.hm-col-note{{font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.45)" if _dk else "#2d4a6b"};text-align:center;margin-top:8px;line-height:1.6}}
+.hm-img-frame{{border-radius:12px;overflow:hidden;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"};box-shadow:0 4px 16px {"rgba(0,0,0,.4)" if _dk else "rgba(10,22,80,.10)"}}}
+.cscale{{background:{"rgba(255,255,255,.025)" if _dk else "#ffffff"};margin:0 1.6rem 1.4rem;border-radius:8px;padding:9px 13px;border:1px solid {"rgba(255,255,255,.08)" if _dk else "#b8d8ec"}}}
+.cscale-bar{{height:12px;border-radius:3px;background:linear-gradient(90deg,#00007f 0%,#0000ff 12%,#007fff 24%,#00ffff 36%,#7fff7f 50%,#ffff00 64%,#ff7f00 76%,#ff0000 88%,#7f0000 100%);margin-bottom:5px}}
+.cscale-lbls{{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:8.5px;color:{"rgba(255,255,255,.5)" if _dk else "#2d4a6b"}}}
+.hm-explain{{background:{"rgba(255,255,255,.025)" if _dk else "#ffffff"};border-top:1px solid {"rgba(255,255,255,.08)" if _dk else "#a8cfe0"};padding:1.3rem 1.7rem}}
+.hm-exp-title{{font-family:'DM Mono',monospace;font-size:9px;color:rgba(56,189,248,.8);text-transform:uppercase;letter-spacing:.15em;margin-bottom:12px}}
+.hm-exp-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}}
+.hm-exp-item{{background:{"rgba(255,255,255,.025)" if _dk else "#ffffff"};border:1px solid {"rgba(255,255,255,.08)" if _dk else "#a8cfe0"};border-radius:10px;padding:12px 14px}}
+.hm-exp-t{{font-family:'DM Mono',monospace;font-size:9px;color:#38bdf8;margin-bottom:5px;font-weight:500}}
+.hm-exp-b{{font-size:13px;color:{"rgba(255,255,255,.8)" if _dk else "#0a1628"};line-height:1.65}}
 
-.disc{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-left:3px solid rgba(245,158,11,.8);border-radius:0 12px 12px 0;padding:13px 18px;font-family:'DM Mono',monospace;font-size:10px;color:#fcd34d;line-height:1.78;margin-top:20px}
-.disc strong{color:#f59e0b}
+.rb{{border-left:3px solid rgba(147,197,253,.55);background:{"rgba(255,255,255,.028)" if _dk else "#ffffff"};border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:12px}}
+.rb-red{{border-left-color:rgba(248,113,113,.8);background:{"rgba(239,68,68,.08)" if _dk else "#fde8e8"}}}
+.rb-yel{{border-left-color:rgba(251,191,36,.8);background:{"rgba(245,158,11,.08)" if _dk else "#fef3cd"}}}
+.rb-grn{{border-left-color:rgba(52,211,153,.8);background:{"rgba(16,185,129,.08)" if _dk else "#d8f5e8"}}}
+.rb-t{{font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.55)" if _dk else "#2d4a6b"};text-transform:uppercase;letter-spacing:.14em;margin-bottom:7px}}
+.rb-b{{font-size:14px;line-height:1.9;color:{"rgba(255,255,255,.88)" if _dk else "#0a1628"}}}
 
-[data-testid="stSidebar"]{background:rgba(10,14,26,.98) !important;border-right:1px solid rgba(56,189,248,.09) !important}
-[data-testid="stSidebar"] p,[data-testid="stSidebar"] label,[data-testid="stSidebar"] span{color:#e2e8f0 !important}
-[data-testid="stFileUploader"]{border:2px dashed rgba(56,189,248,.75) !important;border-radius:16px !important;background:rgba(14,58,140,.22) !important;padding:4px !important}
-[data-testid="stFileUploader"] button{background:#0f172a !important;color:#fff !important;border:1.5px solid rgba(255,255,255,.18) !important;border-radius:10px !important;font-weight:700 !important;font-size:14px !important;padding:10px 24px !important;box-shadow:0 2px 12px rgba(0,0,0,.5) !important}
-.stButton>button{background:linear-gradient(135deg,#0ea5e9 0%,#2563eb 50%,#4f46e5 100%) !important;color:#fff !important;border:none !important;border-radius:14px !important;font-weight:700 !important;font-size:16px !important;padding:17px 28px !important;width:100% !important;box-shadow:0 6px 24px rgba(37,99,235,.55) !important}
-.stButton>button:hover{background:linear-gradient(135deg,#38bdf8 0%,#3b82f6 50%,#6366f1 100%) !important;transform:translateY(-3px) !important}
-[data-testid="stMetric"]{background:rgba(255,255,255,.055) !important;border:1px solid rgba(255,255,255,.1) !important;border-radius:14px !important;padding:13px 16px !important}
-[data-testid="stMetricValue"]{font-family:'Space Grotesk',sans-serif !important;color:#38bdf8 !important;font-size:22px !important}
-[data-testid="stProgress"]>div{background:rgba(255,255,255,.1) !important;border-radius:4px !important}
-[data-testid="stProgress"]>div>div{background:linear-gradient(90deg,#1d4ed8,#0891b2,#38bdf8) !important;border-radius:4px !important}
-[data-testid="stDownloadButton"]>button{background:rgba(56,189,248,.1) !important;border:1px solid rgba(56,189,248,.28) !important;color:#38bdf8 !important;font-family:'DM Mono',monospace !important;font-size:11.5px !important;border-radius:9px !important;padding:9px 16px !important;width:100% !important;box-shadow:none !important}
-[data-testid="stImage"] img{border-radius:12px !important;border:1px solid rgba(255,255,255,.1) !important}
-[data-testid="stSelectbox"]>div>div{background:#1e2d45 !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}
-[data-baseweb="menu"]{background:#0f1e36 !important;border:1px solid rgba(56,189,248,.25) !important;border-radius:10px !important}
-[data-baseweb="menu"] [role="option"]{background:transparent !important;color:#e2e8f0 !important;padding:12px 18px !important}
-[data-baseweb="menu"] [role="option"]:hover{background:rgba(37,99,235,.18) !important;color:#38bdf8 !important}
+.disc{{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-left:3px solid rgba(245,158,11,.8);border-radius:0 12px 12px 0;padding:13px 18px;font-family:'DM Mono',monospace;font-size:10px;color:#fcd34d;line-height:1.78;margin-top:20px}}
+.disc strong{{color:#f59e0b}}
+
+[data-testid="stSidebar"]{{background:{"rgba(10,14,26,.98)" if _dk else "#f0f8ff"} !important;border-right:1px solid {"rgba(56,189,248,.09)" if _dk else "#a8cfe0"} !important}}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] label,[data-testid="stSidebar"] span{{color:{text_color} !important}}
+[data-testid="stFileUploader"]{{border:2px dashed rgba(56,189,248,.75) !important;border-radius:16px !important;background:{"rgba(14,58,140,.22)" if _dk else "rgba(12,74,110,.06)"} !important;padding:4px !important}}
+[data-testid="stFileUploader"] button{{background:#0f172a !important;color:#fff !important;border:1.5px solid rgba(255,255,255,.18) !important;border-radius:10px !important;font-weight:700 !important;font-size:14px !important;padding:10px 24px !important;box-shadow:0 2px 12px rgba(0,0,0,.5) !important}}
+.stButton>button{{
+  background:linear-gradient(135deg,#0ea5e9 0%,#2563eb 50%,#4f46e5 100%) !important;
+  color:#fff !important;border:none !important;border-radius:14px !important;
+  font-weight:700 !important;font-size:16px !important;padding:17px 28px !important;
+  width:100% !important;box-shadow:0 6px 24px rgba(37,99,235,.55) !important;
+}}
+.stButton>button:hover{{
+  background:linear-gradient(135deg,#38bdf8 0%,#3b82f6 50%,#6366f1 100%) !important;
+  transform:translateY(-3px) !important;
+}}
+[data-testid="stMetric"]{{background:{"rgba(255,255,255,.055)" if _dk else "#ffffff"} !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important;border-radius:14px !important;padding:13px 16px !important}}
+[data-testid="stMetricValue"]{{font-family:'Space Grotesk',sans-serif !important;color:#38bdf8 !important;font-size:22px !important}}
+[data-testid="stProgress"]>div{{background:{"rgba(255,255,255,.1)" if _dk else "#b8d8ec"} !important;border-radius:4px !important}}
+[data-testid="stProgress"]>div>div{{background:linear-gradient(90deg,#1d4ed8,#0891b2,#38bdf8) !important;border-radius:4px !important}}
+[data-testid="stDownloadButton"]>button{{
+  background:{"rgba(56,189,248,.10)" if _dk else "#daeeff"} !important;
+  border:1px solid {"rgba(56,189,248,.28)" if _dk else "#4a9ab8"} !important;
+  color:{"#38bdf8" if _dk else "#084e65"} !important;
+  font-family:'DM Mono',monospace !important;font-size:11.5px !important;
+  border-radius:9px !important;padding:9px 16px !important;width:100% !important;box-shadow:none !important
+}}
+[data-testid="stImage"] img{{border-radius:12px !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important}}
+[data-testid="stSelectbox"]>div>div{{background:{"#1e2d45" if _dk else "#ffffff"} !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
+[data-baseweb="menu"]{{background:{"#0f1e36" if _dk else "#ffffff"} !important;border:1px solid rgba(56,189,248,.25) !important;border-radius:10px !important}}
+[data-baseweb="menu"] [role="option"]{{background:transparent !important;color:{text_color} !important;padding:12px 18px !important}}
+[data-baseweb="menu"] [role="option"]:hover{{background:rgba(37,99,235,.18) !important;color:#38bdf8 !important}}
 </style>
 """, unsafe_allow_html=True)
 
 # ================================================================
-# MRI VALIDATION - STRICT
+# MRI VALIDATION - FIXED (Less Strict)
 # ================================================================
 def validate_mri(pil_img):
     """
-    STRICT MRI validation - rejects non-MRI images.
-    Returns (is_valid, confidence, reason)
+    FIXED MRI validation - More permissive to accept real MRIs.
+    Only rejects obviously non-MRI images.
     """
-    # Convert to grayscale and numpy
+    # Convert to grayscale
     img_gray = np.array(pil_img.convert("L"), dtype=np.float32)
     img_rgb = np.array(pil_img.convert("RGB"), dtype=np.float32)
     
     # 1. Check if image is grayscale (MRI should be near-grayscale)
     r, g, b = img_rgb[:,:,0], img_rgb[:,:,1], img_rgb[:,:,2]
-    color_variance = np.var(r) + np.var(g) + np.var(b)
     color_mean_dev = np.std([np.mean(r), np.mean(g), np.mean(b)])
     
-    # 2. Check contrast (MRI has good contrast)
+    # 2. Check contrast (MRI should have some contrast)
     contrast = np.std(img_gray)
     
-    # 3. Check for dark regions (skull/air)
-    dark_ratio = np.sum(img_gray < 30) / img_gray.size
+    # 3. Check for dark regions (skull/air) - more permissive
+    dark_ratio = np.sum(img_gray < 40) / img_gray.size
     
-    # 4. Check for bright regions (brain tissue)
-    bright_ratio = np.sum(img_gray > 200) / img_gray.size
+    # 4. Check for bright regions (brain tissue) - more permissive
+    bright_ratio = np.sum(img_gray > 180) / img_gray.size
     
-    # 5. Check aspect ratio (axial MRI is roughly square)
+    # 5. Check aspect ratio
     w, h = pil_img.size
     aspect_ratio = w / h
     
-    # Decision logic
-    is_grayscale = color_mean_dev < 25
-    has_contrast = contrast > 20
-    has_dark = dark_ratio > 0.02
-    has_bright = bright_ratio > 0.01
-    good_aspect = 0.5 < aspect_ratio < 2.0
+    # RELAXED CRITERIA - accepts most real MRIs
+    is_grayscale = color_mean_dev < 30  # Was 25
+    has_contrast = contrast > 15        # Was 20
+    has_dark = dark_ratio > 0.01        # Was 0.02
+    has_bright = bright_ratio > 0.005   # Was 0.01
+    good_aspect = 0.4 < aspect_ratio < 2.5  # Was 0.5-2.0
     
     # All criteria must be met
     is_valid = is_grayscale and has_contrast and has_dark and has_bright and good_aspect
     
     # Calculate confidence
     confidence = (
-        0.25 * (1 - min(color_mean_dev / 30, 1)) +
-        0.25 * min(contrast / 50, 1) +
-        0.20 * min(dark_ratio / 0.05, 1) +
-        0.20 * min(bright_ratio / 0.05, 1) +
-        0.10 * (1 if good_aspect else 0)
+        0.20 * (1 - min(color_mean_dev / 35, 1)) +
+        0.25 * min(contrast / 40, 1) +
+        0.20 * min(dark_ratio / 0.03, 1) +
+        0.20 * min(bright_ratio / 0.03, 1) +
+        0.15 * (1 if good_aspect else 0)
     )
     confidence = min(confidence, 1.0)
     
@@ -330,10 +388,10 @@ def validate_mri(pil_img):
     if not is_valid:
         issues = []
         if not is_grayscale: issues.append("not grayscale (MRI should be black & white)")
-        if not has_contrast: issues.append("low contrast")
-        if not has_dark: issues.append("no dark regions (missing skull/air void)")
-        if not has_bright: issues.append("no bright regions (missing brain tissue)")
-        if not good_aspect: issues.append(f"unusual aspect ratio: {aspect_ratio:.2f}")
+        if not has_contrast: issues.append("low contrast (MRI should have clear tissue differentiation)")
+        if not has_dark: issues.append("no dark regions (skull/air void should be visible)")
+        if not has_bright: issues.append("no bright regions (brain tissue should be visible)")
+        if not good_aspect: issues.append(f"unusual aspect ratio: {aspect_ratio:.2f} (expected ~1:1)")
         reason = f"Image rejected: {', '.join(issues)}"
     else:
         reason = "Valid brain MRI detected"
@@ -345,20 +403,23 @@ def mri_gate_ui(is_valid, confidence, reason, _dk):
     pct = int(confidence * 100)
     
     if is_valid:
-        clr = "#22c55e" if pct >= 60 else "#f59e0b"
-        bg = "rgba(34,197,94,.08)" if pct >= 60 else "rgba(245,158,11,.07)"
-        bdr = "rgba(34,197,94,.35)" if pct >= 60 else "rgba(245,158,11,.35)"
+        clr = "#22c55e" if pct >= 50 else "#f59e0b"
+        bg = "rgba(34,197,94,.08)" if pct >= 50 else "rgba(245,158,11,.07)"
+        bdr = "rgba(34,197,94,.35)" if pct >= 50 else "rgba(245,158,11,.35)"
         st.markdown(f"""
 <div style="background:{bg};border:1px solid {bdr};border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
   <span style="font-size:18px;">✅</span>
   <div>
     <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{clr};">Brain MRI verified</span>
-    <span style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.4);margin-left:10px;">Confidence: {pct}%</span>
+    <span style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.4)" if _dk else "#4a6580"};margin-left:10px;">Confidence: {pct}%</span>
   </div>
 </div>""", unsafe_allow_html=True)
     else:
         st.error(f"❌ **Image Rejected** - {reason}")
         st.info("Please upload a valid axial brain MRI scan (T1 or T2 weighted, JPG/PNG format)")
+        if st.button("Override and Continue (Testing Only)"):
+            st.session_state.override_mri = True
+            st.rerun()
 
 # ================================================================
 # INTELLIGENT MRI ANALYSIS
@@ -671,12 +732,6 @@ with st.sidebar:
 _tog_icon = "☀️" if _dk else "🌙"
 _next_theme = "light" if _dk else "dark"
 
-_qp = st.query_params.get("theme", None)
-if _qp in ("light", "dark") and st.session_state.theme != _qp:
-    st.session_state.theme = _qp
-    st.query_params.clear()
-    st.rerun()
-
 st.markdown(f"""
 <div class="topnav">
   <div class="nav-brand">
@@ -687,11 +742,10 @@ st.markdown(f"""
     </div>
   </div>
   <div class="nav-right">
-    <span class="chip c-blue">AI Analysis</span>
-    <span class="chip c-teal">Grad-CAM XAI</span>
-    <span class="chip c-green">Clinical Grade</span>
-    <span class="chip c-amber">4-Class CNN</span>
-    <span class="chip c-purple">AI Reports</span>
+    <span class="chip">AI Analysis</span>
+    <span class="chip">Grad-CAM XAI</span>
+    <span class="chip">Clinical Grade</span>
+    <span class="chip">4-Class CNN</span>
     <form method="get" action="" style="margin:0;padding:0;display:inline-flex;">
       <input type="hidden" name="theme" value="{_next_theme}">
       <button type="submit" class="theme-toggle" title="Switch theme">{_tog_icon}</button>
@@ -862,6 +916,9 @@ with col_out:
 # ANALYSIS
 # ================================================================
 if clicked and img:
+    # Check if we have an override
+    override = st.session_state.get("override_mri", False)
+    
     st.markdown("""
 <div id="ns-result-anchor"></div>
 <div id="ns-toast">
@@ -910,14 +967,18 @@ if clicked and img:
 """, unsafe_allow_html=True)
 
     # Step 1: MRI Validation
-    with st.spinner("Validating image..."):
-        is_valid_mri, mri_confidence, mri_reason = validate_mri(img)
+    if not override:
+        with st.spinner("Validating image..."):
+            is_valid_mri, mri_confidence, mri_reason = validate_mri(img)
 
-    with col_out:
-        mri_gate_ui(is_valid_mri, mri_confidence, mri_reason, _dk)
+        with col_out:
+            mri_gate_ui(is_valid_mri, mri_confidence, mri_reason, _dk)
 
-    if not is_valid_mri:
-        st.stop()
+        if not is_valid_mri:
+            st.stop()
+    else:
+        st.info("⚠️ MRI validation overridden for testing")
+        st.session_state.override_mri = False
 
     # Step 2: AI Analysis
     with st.spinner("Running AI analysis..."):
@@ -1149,9 +1210,8 @@ if clicked and img:
   All findings require review by a licensed radiologist or neurosurgeon.
 </div>""", unsafe_allow_html=True)
 
-    # Export JSON - FIXED: Convert numpy types to Python types
+    # Export JSON - FIXED
     try:
-        # Convert all numpy values to Python native types
         def convert_to_serializable(obj):
             if isinstance(obj, np.integer):
                 return int(obj)
@@ -1175,10 +1235,7 @@ if clicked and img:
             "focus_pct": round(float(focus_p), 2)
         }
         
-        # Convert probabilities
         probs = {n: float(round(float(p), 4)) for n, p in zip(CLASS_NAMES, preds)}
-        
-        # Convert report
         serializable_report = convert_to_serializable(report)
         
         export_data = {
@@ -1202,24 +1259,7 @@ if clicked and img:
             mime="application/json"
         )
     except Exception as e:
-        st.error(f"Error generating JSON: {str(e)[:100]}")
-        # Try simpler export
-        try:
-            simple_data = {
-                "system": "NeuroScan AI v3.0",
-                "prediction": pcls,
-                "confidence": float(conf),
-                "risk": rl,
-                "explanation": explanation
-            }
-            st.download_button(
-                "Export Report (Simple JSON)",
-                data=json.dumps(simple_data, indent=2),
-                file_name=f"neuroscan_{pcls.lower().replace(' ', '_')}.json",
-                mime="application/json"
-            )
-        except:
-            st.warning("Could not generate JSON export. Please copy the report manually.")
+        st.warning(f"Could not generate JSON export: {str(e)[:100]}")
 
     # Model Performance
     st.markdown("---")
