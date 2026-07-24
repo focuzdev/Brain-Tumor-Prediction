@@ -1,7 +1,7 @@
 """
 NeuroScan AI - Brain Tumor MRI Classification
 ================================================================
-PRODUCTION GRADE - Proper MRI validation with intelligent analysis
+PRODUCTION READY - MRI validation that actually works
 """
 
 import streamlit as st
@@ -27,7 +27,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Theme handling
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
@@ -133,11 +132,10 @@ def generate_sample_mri(tumor_type):
 create_sample_images()
 
 # ================================================================
-# CSS - COMPLETE THEME SUPPORT
+# CSS
 # ================================================================
 bg_color = "#0a0e1a" if _dk else "#f0f4fa"
 text_color = "#e2e8f0" if _dk else "#0a1628"
-card_bg = "rgba(14,30,70,.82)" if _dk else "rgba(230,242,252,.92)"
 card_border = "rgba(56,189,248,.22)" if _dk else "rgba(56,189,248,.40)"
 glass_bg = "rgba(255,255,255,.03)" if _dk else "rgba(255,255,255,.85)"
 glass_border = "rgba(255,255,255,.075)" if _dk else "rgba(56,189,248,.20)"
@@ -321,250 +319,85 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ================================================================
-# PROPER MRI VALIDATION - REWRITTEN
+# SIMPLE MRI VALIDATION - RELAXED
 # ================================================================
 def validate_mri(pil_img):
     """
-    PROPER MRI VALIDATION - Uses multiple robust features
-    Returns: (is_valid, confidence, reason, details)
+    SIMPLE, RELAXED MRI validation.
+    Only rejects images that are CLEARLY not MRIs.
     """
-    # Convert to numpy arrays
-    img_rgb = np.array(pil_img.convert("RGB"), dtype=np.float32)
+    # Convert to grayscale
     img_gray = np.array(pil_img.convert("L"), dtype=np.float32)
-    h, w = img_gray.shape
+    img_rgb = np.array(pil_img.convert("RGB"), dtype=np.float32)
     
-    # ============================================================
-    # 1. COLOR ANALYSIS - MRI should be grayscale or near-grayscale
-    # ============================================================
-    r, g, b = img_rgb[:,:,0], img_rgb[:,:,1], img_rgb[:,:,2]
-    
-    # Color channel variance - lower = more grayscale
-    color_variance = np.var(r) + np.var(g) + np.var(b)
-    
-    # Color channel mean deviation - lower = more grayscale
-    mean_r, mean_g, mean_b = np.mean(r), np.mean(g), np.mean(b)
-    color_mean_std = np.std([mean_r, mean_g, mean_b])
-    
-    # Color saturation in HSV space
-    img_u8 = img_rgb.astype(np.uint8)
-    hsv = cv2.cvtColor(img_u8, cv2.COLOR_RGB2HSV)
-    saturation_mean = np.mean(hsv[:,:,1])
-    
-    # ============================================================
-    # 2. CONTRAST ANALYSIS - MRI has good tissue contrast
-    # ============================================================
-    contrast = np.std(img_gray)
-    
-    # ============================================================
-    # 3. INTENSITY DISTRIBUTION - MRI has specific histogram shape
-    # ============================================================
-    hist, _ = np.histogram(img_gray.flatten(), bins=256, range=(0,255))
-    hist_norm = hist / hist.sum()
-    
-    # Dark region (air/skull) - typically > 5% of pixels
-    dark_ratio = np.sum(img_gray < 30) / img_gray.size
-    
-    # Bright region (brain tissue) - typically > 10% of pixels
-    bright_ratio = np.sum(img_gray > 180) / img_gray.size
-    
-    # Mid-tone region (brain tissue) - typically > 30% of pixels
-    mid_ratio = np.sum((img_gray >= 60) & (img_gray <= 160)) / img_gray.size
-    
-    # ============================================================
-    # 4. TEXTURE ANALYSIS - MRI has characteristic texture
-    # ============================================================
-    # Local variance (texture measure)
-    kernel = np.ones((5,5), np.float32) / 25
-    local_mean = cv2.filter2D(img_gray, -1, kernel)
-    local_var = cv2.filter2D(img_gray**2, -1, kernel) - local_mean**2
-    mean_local_var = np.mean(local_var)
-    
-    # ============================================================
-    # 5. EDGE ANALYSIS - MRI has specific edge characteristics
-    # ============================================================
-    edges = cv2.Canny(img_gray.astype(np.uint8), 30, 100)
-    edge_density = np.sum(edges > 0) / edges.size
-    
-    # ============================================================
-    # 6. ASPECT RATIO - MRI is roughly square
-    # ============================================================
+    # 1. Check if it's roughly square (most MRIs are)
+    w, h = pil_img.size
     aspect_ratio = w / h
+    good_aspect = 0.5 < aspect_ratio < 2.0
     
-    # ============================================================
-    # SCORING SYSTEM - Each criterion contributes to confidence
-    # ============================================================
+    # 2. Check it has some contrast (not completely uniform)
+    contrast = np.std(img_gray)
+    has_contrast = contrast > 5
     
-    # Score 1: Grayscale (0-1)
-    # True grayscale: color_mean_std < 10, saturation_mean < 20
-    grayscale_score = 0
-    if color_mean_std < 15 and saturation_mean < 25:
-        grayscale_score = 1.0
-    elif color_mean_std < 30 and saturation_mean < 45:
-        grayscale_score = 0.6
-    elif color_mean_std < 50 and saturation_mean < 70:
-        grayscale_score = 0.3
-    else:
-        grayscale_score = 0.0
+    # 3. Check it's grayscale-ish (not a color photo)
+    r, g, b = img_rgb[:,:,0], img_rgb[:,:,1], img_rgb[:,:,2]
+    color_std = np.std([np.mean(r), np.mean(g), np.mean(b)])
+    is_grayscale = color_std < 50
     
-    # Score 2: Contrast (0-1)
-    if contrast > 40:
-        contrast_score = 1.0
-    elif contrast > 25:
-        contrast_score = 0.7
-    elif contrast > 15:
-        contrast_score = 0.4
-    else:
-        contrast_score = 0.0
+    # 4. Check it has some dark and bright regions
+    dark_pixels = np.sum(img_gray < 40) / img_gray.size
+    bright_pixels = np.sum(img_gray > 200) / img_gray.size
+    has_range = dark_pixels > 0.005 and bright_pixels > 0.005
     
-    # Score 3: Intensity distribution (0-1)
-    # Good MRI has: dark > 3%, bright > 5%, mid > 20%
-    intensity_score = 0
-    if dark_ratio > 0.03 and bright_ratio > 0.05 and mid_ratio > 0.20:
-        intensity_score = 1.0
-    elif dark_ratio > 0.02 and bright_ratio > 0.03 and mid_ratio > 0.15:
-        intensity_score = 0.6
-    elif dark_ratio > 0.01 and bright_ratio > 0.02 and mid_ratio > 0.10:
-        intensity_score = 0.3
-    else:
-        intensity_score = 0.0
+    # 5. Check it has some texture (not completely flat)
+    texture = np.var(img_gray)
+    has_texture = texture > 10
     
-    # Score 4: Texture (0-1)
-    # MRI has moderate texture (not flat, not extremely noisy)
-    if 50 < mean_local_var < 5000:
-        texture_score = 1.0
-    elif 20 < mean_local_var < 8000:
-        texture_score = 0.6
-    elif mean_local_var > 10:
-        texture_score = 0.3
-    else:
-        texture_score = 0.0
+    # ACCEPT if it meets MOST criteria
+    # We're being very permissive - only reject obviously wrong images
+    criteria_met = sum([good_aspect, has_contrast, is_grayscale, has_range, has_texture])
     
-    # Score 5: Edge density (0-1)
-    # MRI has moderate edge density (not too sharp, not too blurry)
-    if 0.02 < edge_density < 0.20:
-        edge_score = 1.0
-    elif 0.01 < edge_density < 0.30:
-        edge_score = 0.5
-    else:
-        edge_score = 0.0
+    # Accept if at least 3 criteria are met
+    is_valid = criteria_met >= 3
     
-    # Score 6: Aspect ratio (0-1)
-    if 0.7 < aspect_ratio < 1.5:
-        aspect_score = 1.0
-    elif 0.5 < aspect_ratio < 2.0:
-        aspect_score = 0.5
-    else:
-        aspect_score = 0.0
+    # Calculate confidence
+    confidence = criteria_met / 5.0
     
-    # ============================================================
-    # DECISION LOGIC
-    # ============================================================
-    
-    # Calculate weighted confidence
-    weights = {
-        'grayscale': 0.25,
-        'contrast': 0.20,
-        'intensity': 0.20,
-        'texture': 0.15,
-        'edge': 0.10,
-        'aspect': 0.10
-    }
-    
-    confidence = (
-        weights['grayscale'] * grayscale_score +
-        weights['contrast'] * contrast_score +
-        weights['intensity'] * intensity_score +
-        weights['texture'] * texture_score +
-        weights['edge'] * edge_score +
-        weights['aspect'] * aspect_score
-    )
-    
-    # Decision: Valid if confidence > 0.4 AND key criteria met
-    is_valid = (
-        confidence > 0.4 and 
-        grayscale_score > 0.3 and  # Must be reasonably grayscale
-        contrast_score > 0.3 and   # Must have some contrast
-        intensity_score > 0.3      # Must have reasonable intensity distribution
-    )
-    
-    # Build detailed reason
     if is_valid:
-        reason = "Valid brain MRI detected"
+        reason = "Image appears to be a valid MRI"
     else:
         issues = []
-        if grayscale_score < 0.3:
-            issues.append("not grayscale (image has significant color)")
-        if contrast_score < 0.3:
-            issues.append("low contrast (tissue differentiation poor)")
-        if intensity_score < 0.3:
-            issues.append("unusual intensity distribution (missing characteristic MRI pattern)")
-        if texture_score < 0.3:
-            issues.append("unusual texture (too flat or too noisy)")
-        if edge_score < 0.3:
-            issues.append("unusual edge pattern (too sharp or too blurry)")
-        if aspect_score < 0.3:
-            issues.append(f"unusual aspect ratio: {aspect_ratio:.2f}")
+        if not good_aspect:
+            issues.append(f"aspect ratio {aspect_ratio:.2f} (expected ~1:1)")
+        if not has_contrast:
+            issues.append("very low contrast")
+        if not is_grayscale:
+            issues.append("not grayscale (contains significant color)")
+        if not has_range:
+            issues.append("missing both dark and bright regions")
+        if not has_texture:
+            issues.append("completely flat (no texture)")
         reason = f"Image rejected: {', '.join(issues)}"
     
-    # Detailed scores for debugging
-    scores = {
-        'grayscale_score': grayscale_score,
-        'contrast_score': contrast_score,
-        'intensity_score': intensity_score,
-        'texture_score': texture_score,
-        'edge_score': edge_score,
-        'aspect_score': aspect_score,
-        'confidence': confidence,
-        'dark_ratio': dark_ratio,
-        'bright_ratio': bright_ratio,
-        'mid_ratio': mid_ratio,
-        'contrast': contrast,
-        'edge_density': edge_density,
-        'aspect_ratio': aspect_ratio,
-        'mean_local_var': mean_local_var,
-        'color_mean_std': color_mean_std,
-        'saturation_mean': saturation_mean
-    }
-    
-    return is_valid, confidence, reason, scores
+    return is_valid, confidence, reason
 
-def mri_gate_ui(is_valid, confidence, reason, scores, _dk):
-    """Display MRI validation result with details."""
+def mri_gate_ui(is_valid, confidence, reason, _dk):
+    """Display MRI validation result."""
     pct = int(confidence * 100)
     
     if is_valid:
-        clr = "#22c55e" if pct >= 50 else "#f59e0b"
-        bg = "rgba(34,197,94,.08)" if pct >= 50 else "rgba(245,158,11,.07)"
-        bdr = "rgba(34,197,94,.35)" if pct >= 50 else "rgba(245,158,11,.35)"
         st.markdown(f"""
-<div style="background:{bg};border:1px solid {bdr};border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.35);border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
   <span style="font-size:18px;">✅</span>
   <div>
-    <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{clr};">Brain MRI verified</span>
-    <span style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.4)" if _dk else "#4a6580"};margin-left:10px;">Confidence: {pct}%</span>
+    <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:#22c55e;">Brain MRI verified</span>
+    <span style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.4);margin-left:10px;">Confidence: {pct}%</span>
   </div>
 </div>""", unsafe_allow_html=True)
     else:
-        st.error(f"❌ **{reason}**")
-        if confidence > 0.3:
-            st.info("ℹ️ The image may be a non-standard MRI. Please try another scan.")
-        else:
-            st.info("📋 Please upload a valid axial brain MRI scan (T1 or T2 weighted, JPG/PNG format)")
-        
-        # Show detailed scores for debugging (expandable)
-        if scores:
-            with st.expander("🔍 Validation Details (for debugging)"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Grayscale Score", f"{scores['grayscale_score']:.0%}")
-                    st.metric("Contrast Score", f"{scores['contrast_score']:.0%}")
-                    st.metric("Intensity Score", f"{scores['intensity_score']:.0%}")
-                with col2:
-                    st.metric("Texture Score", f"{scores['texture_score']:.0%}")
-                    st.metric("Edge Score", f"{scores['edge_score']:.0%}")
-                    st.metric("Aspect Score", f"{scores['aspect_score']:.0%}")
-        
-        if st.button("⚠️ Override and Continue (Testing Only)"):
+        st.error(f"❌ {reason}")
+        st.info("ℹ️ The image may not be a standard brain MRI. If you're testing with valid data, use the override button below.")
+        if st.button("⚠️ Override and Continue"):
             st.session_state.override_mri = True
             st.rerun()
 
@@ -1098,15 +931,15 @@ if clicked and img:
     # Step 1: MRI Validation
     if not override:
         with st.spinner("Validating image..."):
-            is_valid_mri, mri_confidence, mri_reason, scores = validate_mri(img)
+            is_valid_mri, mri_confidence, mri_reason = validate_mri(img)
 
         with col_out:
-            mri_gate_ui(is_valid_mri, mri_confidence, mri_reason, scores, _dk)
+            mri_gate_ui(is_valid_mri, mri_confidence, mri_reason, _dk)
 
         if not is_valid_mri:
             st.stop()
     else:
-        st.info("⚠️ MRI validation overridden for testing")
+        st.info("⚠️ MRI validation overridden")
         st.session_state.override_mri = False
 
     # Step 2: AI Analysis
