@@ -6,6 +6,7 @@ Works on Streamlit Cloud without TensorFlow installation
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import cv2
 import matplotlib
@@ -734,7 +735,7 @@ body.ns-sidebar-collapsed [data-testid="stSidebar"]{{
 </style>
 """, unsafe_allow_html=True)
 
-st.iframe(srcdoc="""
+components.html("""
 <script>
 (function(){
   var doc = window.parent.document;
