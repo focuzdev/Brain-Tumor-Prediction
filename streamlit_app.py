@@ -663,7 +663,7 @@ st.markdown(f"""
 }}
 [data-testid="stImage"] img{{border-radius:12px !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important}}
 [data-testid="stSelectbox"]>div>div{{background:{"#1e2d45" if _dk else "#ffffff"} !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{{color:{"rgba(255,255,255,.65)" if _dk else "rgba(10,22,40,.68)"} !important}}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{{color:{"rgba(255,255,255,.75)" if _dk else "#0a1628"} !important}}
 [data-testid="stSelectbox"] [data-baseweb="select"] *{{color:{text_color} !important}}
 [data-testid="stSelectbox"] svg{{fill:{text_color} !important}}
 [data-testid="stSelectbox"] [data-baseweb="select"]{{background:{"#1e2d45" if _dk else "#ffffff"} !important}}
@@ -1427,12 +1427,12 @@ if clicked and img:
 """, unsafe_allow_html=True)
 
     with col_out:
-        st.markdown("""
+        st.markdown(f"""
 <div style="background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.30);border-left:4px solid #38bdf8;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
   <span style="font-size:20px">🔬</span>
   <div>
-    <div style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:#e2e8f0;">Analysis in progress</div>
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.50);margin-top:2px;letter-spacing:.05em;">VALIDATION → AI ANALYSIS → HEATMAP → REPORT</div>
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{text_color};">Analysis in progress</div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.50)" if _dk else "rgba(10,22,40,.62)"};margin-top:2px;letter-spacing:.05em;">VALIDATION → AI ANALYSIS → HEATMAP → REPORT</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
