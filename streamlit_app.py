@@ -300,12 +300,22 @@ def generate_gradcam(pil_img, model, preprocess_style, pred_index):
 
     try:
         x = preprocess_for_model(pil_img, preprocess_style)
+
+        # Some Sequential models loaded from .h5 don't populate `.inputs`
+        # until they've actually been called once -- force that first so
+        # the Model(...) construction below has a real graph to attach to.
+        try:
+            _ = model(x, training=False)
+        except Exception:
+            pass
+        model_inputs = model.inputs if model.inputs else [model.input]
+
         # Use owner.get_layer(...) -- NOT model.get_layer(...) -- so this
         # works whether the conv layer lives at the top level or inside a
         # nested backbone (e.g. MobileNetV2 wrapped as a single layer).
         conv_layer_output = owner.get_layer(last_conv).output
         grad_model = tf.keras.models.Model(
-            [model.inputs], [conv_layer_output, model.output]
+            model_inputs, [conv_layer_output, model.output]
         )
         with tf.GradientTape() as tape:
             conv_outputs, predictions = grad_model(x)
@@ -340,7 +350,7 @@ st.set_page_config(
 )
 
 if "theme" not in st.session_state:
-    st.session_state.theme = "dark"
+    st.session_state.theme = "light"
 
 theme_param = st.query_params.get("theme", None)
 if theme_param in ["light", "dark"]:
@@ -624,6 +634,7 @@ st.markdown(f"""
 }}
 [data-testid="stImage"] img{{border-radius:12px !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important}}
 [data-testid="stSelectbox"]>div>div{{background:{"#1e2d45" if _dk else "#ffffff"} !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{{color:{"rgba(255,255,255,.65)" if _dk else "rgba(10,22,40,.68)"} !important}}
 [data-testid="stSelectbox"] [data-baseweb="select"] *{{color:{text_color} !important}}
 [data-testid="stSelectbox"] svg{{fill:{text_color} !important}}
 [data-testid="stSelectbox"] [data-baseweb="select"]{{background:{"#1e2d45" if _dk else "#ffffff"} !important}}
@@ -1255,7 +1266,7 @@ with col_in:
         help="Axial T1 or T2-weighted brain MRI."
     )
     
-    st.markdown('''<div style="font-family:DM Mono,monospace;font-size:10px;color:rgba(255,255,255,.68);text-align:center;padding:8px 0 14px;text-transform:uppercase;letter-spacing:.11em;background:rgba(56,189,248,.06);border-radius:8px;margin-top:6px;">
+    st.markdown(f'''<div style="font-family:DM Mono,monospace;font-size:10px;color:{"rgba(255,255,255,.68)" if _dk else "rgba(10,22,40,.72)"};text-align:center;padding:8px 0 14px;text-transform:uppercase;letter-spacing:.11em;background:rgba(56,189,248,.06);border-radius:8px;margin-top:6px;">
       JPG / PNG / BMP &nbsp;·&nbsp; Max 10 MB &nbsp;·&nbsp; T1 or T2 axial preferred
     </div>''', unsafe_allow_html=True)
 
