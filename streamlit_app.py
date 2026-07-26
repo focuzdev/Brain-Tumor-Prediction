@@ -624,6 +624,9 @@ st.markdown(f"""
 }}
 [data-testid="stImage"] img{{border-radius:12px !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important}}
 [data-testid="stSelectbox"]>div>div{{background:{"#1e2d45" if _dk else "#ffffff"} !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
+[data-testid="stSelectbox"] [data-baseweb="select"] *{{color:{text_color} !important}}
+[data-testid="stSelectbox"] svg{{fill:{text_color} !important}}
+[data-testid="stSelectbox"] [data-baseweb="select"]{{background:{"#1e2d45" if _dk else "#ffffff"} !important}}
 [data-baseweb="menu"]{{background:{"#0f1e36" if _dk else "#ffffff"} !important;border:1px solid rgba(56,189,248,.25) !important;border-radius:10px !important}}
 [data-baseweb="menu"] [role="option"]{{background:transparent !important;color:{text_color} !important;padding:12px 18px !important}}
 [data-baseweb="menu"] [role="option"]:hover{{background:rgba(37,99,235,.18) !important;color:#38bdf8 !important}}
@@ -660,16 +663,18 @@ body.ns-sidebar-collapsed [data-testid="stSidebar"]{{
 }}
 #ns-sb-toggle{{
   position:fixed;
-  top:16px;
-  right:16px;
-  left:auto;
+  top:50%;
+  left:0;
+  right:auto;
+  transform:translateY(-50%);
   z-index:999999;
   min-width:42px;
-  height:42px;
-  padding:0 14px;
-  border-radius:11px;
+  height:44px;
+  padding:0 14px 0 10px;
+  border-radius:0 11px 11px 0;
   background:{"#1e2d45" if _dk else "#ffffff"};
   border:2px solid #38bdf8;
+  border-left:none;
   color:{"#38bdf8" if _dk else "#0369a1"};
   font-size:13px;
   font-family:'DM Mono',monospace;
@@ -679,13 +684,13 @@ body.ns-sidebar-collapsed [data-testid="stSidebar"]{{
   justify-content:center;
   gap:7px;
   cursor:pointer;
-  box-shadow:0 4px 16px rgba(0,0,0,.35);
+  box-shadow:2px 0 16px rgba(0,0,0,.35);
   user-select:none;
-  transition:transform .15s ease;
+  transition:transform .15s ease, left .15s ease;
   white-space:nowrap;
 }}
 #ns-sb-toggle:hover{{
-  transform:scale(1.05);
+  transform:translateY(-50%) scale(1.05);
   background:{"#28405f" if _dk else "#e6f4fd"};
 }}
 </style>
