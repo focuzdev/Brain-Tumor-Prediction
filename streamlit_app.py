@@ -35,6 +35,7 @@ TF_IMPORT_ERROR = ""
 try:
     import tensorflow as tf
     from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as mobilenet_preprocess
+    from tensorflow.keras.applications.resnet_v2 import preprocess_input as resnet_preprocess
     TF_AVAILABLE = True
 except Exception as e:
     TF_IMPORT_ERROR = str(e)
@@ -53,12 +54,16 @@ MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 # commit URLs: st.secrets.get("BRAIN_TUMOR_MODEL_URL"), etc.
 MODEL_CONFIGS = [
     {
-        # Your own training_history.png labels this "ResNet50V2 - Accuracy" --
-        # it's not a generic custom CNN, it's a ResNet50V2 backbone. Fixed
-        # the display label to match; the internal `key` stays "custom_cnn"
-        # so existing secrets/session state referencing that key still work.
+        # NOTE: per the training notebook's own Cell 14, brain_tumor_model.h5
+        # is saved as "whichever of ResNet50V2/MobileNetV2 scored higher on
+        # that specific training run" -- its architecture is NOT guaranteed
+        # to be ResNet50V2, that was an assumption from the chart title in
+        # training_history.png, not a verified fact. load_models() below
+        # inspects the actual loaded model's backbone layer name at runtime
+        # and corrects this label + the preprocessing function if needed, so
+        # this "resnet50v2" default is a best guess, not the source of truth.
         "key": "custom_cnn", "label": "ResNet50V2", "file": "brain_tumor_model.h5",
-        "preprocess": "rescale", "expected_size": 230584088,
+        "preprocess": "resnet", "expected_size": 230584088,
         "url": "https://media.githubusercontent.com/media/focuzdev/Brain-Tumor-Prediction/master/brain_tumor_model.h5",
     },
     {
@@ -182,12 +187,42 @@ def _ensure_model_downloaded(cfg):
     _log(f"{tag} download OK, final size {os.path.getsize(path)} bytes")
     return path, None
 
+def _detect_backbone_architecture(model):
+    """
+    Inspects the actual loaded model's backbone layer to determine its real
+    architecture, rather than trusting a filename or an assumed label.
+
+    This matters specifically for brain_tumor_model.h5: the training
+    notebook's own Cell 14 saves "whichever of ResNet50V2/MobileNetV2 scored
+    higher on that training run" under this filename -- the architecture
+    inside it is empirically decided per-run, not fixed. Following the same
+    convention the notebook itself uses for Grad-CAM (backbone is
+    model.layers[1], since Input is layers[0]), so this detection matches
+    exactly how the model was actually built.
+    """
+    try:
+        name = model.layers[1].name.lower()
+    except Exception:
+        name = ""
+    if "resnet" in name:
+        return "resnet50v2", name
+    if "mobilenet" in name:
+        return "mobilenetv2", name
+    return "unknown", name
+
 @st.cache_resource(show_spinner=False)
 def load_models(mode):
     """
     Loads the model(s) selected by `mode`, downloading real weights first if
     the local copy is missing or is an unresolved Git LFS pointer stub.
-    Returns (loaded: dict[key -> keras.Model], errors: dict[key -> str]).
+    Returns (loaded: dict[key -> keras.Model], errors: dict[key -> str],
+    runtime_meta: dict[key -> {"label": str, "preprocess": str}]).
+
+    `runtime_meta` reflects each model's ACTUAL detected architecture, not
+    just the static guess in MODEL_CONFIGS -- see _detect_backbone_architecture.
+    This is what the rest of the app should use for preprocessing/labeling,
+    since brain_tumor_model.h5's true identity isn't guaranteed by its
+    filename (see that function's docstring).
 
     IMPORTANT: `mode` must be an explicit parameter, not read from session
     state/secrets inside the function body. st.cache_resource keys its cache
@@ -197,12 +232,12 @@ def load_models(mode):
     even attempted under whatever mode happened to be cached first. Passing
     `mode` in gives each mode its own independent cache entry.
     """
-    loaded, errors = {}, {}
+    loaded, errors, runtime_meta = {}, {}, {}
     _log(f"load_models() starting, MODEL_MODE={mode!r}")
     if not TF_AVAILABLE:
         _log(f"ERROR: TensorFlow not available: {TF_IMPORT_ERROR}")
         errors["_tensorflow"] = TF_IMPORT_ERROR or "TensorFlow is not installed in this environment."
-        return loaded, errors
+        return loaded, errors, runtime_meta
     _log(f"TensorFlow version: {tf.__version__}")
 
     for cfg in _active_model_configs(mode):
@@ -216,33 +251,54 @@ def load_models(mode):
             m = tf.keras.models.load_model(path, compile=False)
             loaded[cfg["key"]] = m
             _log(f"{tag} load_model() succeeded")
+
+            detected_arch, backbone_layer_name = _detect_backbone_architecture(m)
+            expected_arch = "resnet50v2" if cfg["key"] == "custom_cnn" else "mobilenetv2"
+            if detected_arch == "unknown":
+                _log(f"{tag} WARNING: could not detect backbone architecture from layer name "
+                     f"'{backbone_layer_name}' -- keeping configured label/preprocess as a best guess")
+                runtime_meta[cfg["key"]] = {"label": cfg["label"], "preprocess": cfg["preprocess"]}
+            elif detected_arch != expected_arch:
+                _log(f"{tag} MISMATCH: expected {expected_arch} but backbone layer is '{backbone_layer_name}' "
+                     f"(detected {detected_arch}). Correcting label and preprocessing to match reality "
+                     f"instead of the assumed filename/label.")
+                corrected_label = "ResNet50V2" if detected_arch == "resnet50v2" else "MobileNetV2"
+                corrected_preprocess = "resnet" if detected_arch == "resnet50v2" else "mobilenet"
+                runtime_meta[cfg["key"]] = {"label": corrected_label, "preprocess": corrected_preprocess}
+            else:
+                _log(f"{tag} architecture verified: backbone layer '{backbone_layer_name}' matches expected {expected_arch}")
+                runtime_meta[cfg["key"]] = {"label": cfg["label"], "preprocess": cfg["preprocess"]}
         except Exception as e:
             import traceback
             _log(f"{tag} ERROR: load_model() failed:\n{traceback.format_exc()}")
             errors[cfg["key"]] = f"Failed to load {cfg['file']}: {e}"
     _log(f"load_models() done. loaded={list(loaded.keys())} errors={list(errors.keys())}")
-    return loaded, errors
+    return loaded, errors, runtime_meta
 
 def preprocess_for_model(pil_img, style):
     """
     Converts a PIL image into the exact tensor shape/scale a given model
-    expects. NOTE: 'rescale' (0-1) and 'mobilenet' ([-1,1] via Keras'
-    official preprocess_input) are the two most common training setups --
-    but you must confirm these match what your training notebook actually
-    used. A preprocessing mismatch (e.g. model trained on 0-1 floats but
-    served with raw 0-255 ints, or vice versa) is one of the most common
-    causes of a model that scores well offline but misclassifies in
-    production, and it fails *silently* -- no error, just wrong answers.
+    expects. Verified directly against the real training notebook
+    (neuroscan_expert.ipynb):
+      - MobileNetV2 trained with tf.keras.applications.mobilenet_v2.preprocess_input
+      - ResNet50V2   trained with tf.keras.applications.resnet_v2.preprocess_input
+    Neither model was trained with simple rescale=1/255 -- the notebook's own
+    Cell 1 flags that exact mistake as "the root cause of 35% accuracy" in an
+    earlier attempt. The deployed app was using 'rescale' for the ResNet50V2
+    model (custom_cnn), which is precisely that same bug.
     """
     img = pil_img.convert("RGB").resize(IMG_SIZE)
     arr = np.array(img).astype(np.float32)
     if style == "mobilenet":
         arr = mobilenet_preprocess(arr)
-    else:  # "rescale"
+    elif style == "resnet":
+        arr = resnet_preprocess(arr)
+    else:  # legacy fallback, not used by either real model -- kept only so
+           # an unrecognized style doesn't hard-crash.
         arr = arr / 255.0
     return np.expand_dims(arr, axis=0)
 
-def predict_with_models(pil_img, loaded_models):
+def predict_with_models(pil_img, loaded_models, runtime_meta=None):
     """
     Runs real inference. If more than one model loaded, ensembles by
     averaging softmax probabilities (matches the repo's
@@ -250,20 +306,31 @@ def predict_with_models(pil_img, loaded_models):
       preds        -> np.array aligned to CLASS_NAMES
       explanation  -> short string noting which model(s) produced this
       per_model    -> dict[label -> preds array] for transparency
+
+    Uses runtime_meta (from load_models' architecture auto-detection) for
+    preprocessing/labels when available -- this matters because
+    brain_tumor_model.h5's true architecture isn't guaranteed by its
+    filename/config entry (see _detect_backbone_architecture), so using the
+    static MODEL_CONFIGS preprocessing here could silently apply the wrong
+    normalization to whichever model actually got loaded.
     """
+    runtime_meta = runtime_meta or {}
     per_model = {}
     for cfg in MODEL_CONFIGS:
         model = loaded_models.get(cfg["key"])
         if model is None:
             continue
-        x = preprocess_for_model(pil_img, cfg["preprocess"])
+        meta = runtime_meta.get(cfg["key"], {})
+        style = meta.get("preprocess", cfg["preprocess"])
+        label = meta.get("label", cfg["label"])
+        x = preprocess_for_model(pil_img, style)
         raw = model.predict(x, verbose=0)[0]
         # If the model's final layer isn't already softmax-normalized, normalize defensively.
         raw = np.asarray(raw, dtype=np.float64)
         if raw.sum() <= 0 or abs(raw.sum() - 1.0) > 1e-3:
             exp = np.exp(raw - raw.max())
             raw = exp / exp.sum()
-        per_model[cfg["label"]] = raw
+        per_model[label] = raw
 
     if not per_model:
         raise RuntimeError("No loaded model produced a prediction.")
@@ -1187,7 +1254,7 @@ with st.sidebar:
     st.markdown("#### System Status")
 
     _mode = _get_model_mode()
-    _loaded_models, _model_errors = load_models(_mode)
+    _loaded_models, _model_errors, _runtime_meta = load_models(_mode)
     _active_cfgs = _active_model_configs(_mode)
 
     # If something failed to load (e.g. a transient network hiccup on a cold
@@ -1228,14 +1295,20 @@ with st.sidebar:
         st.rerun()
 
     for cfg in _active_cfgs:
+        _display_label = _runtime_meta.get(cfg["key"], {}).get("label", cfg["label"])
         if cfg["key"] in _loaded_models:
-            st.success(f"✅ {cfg['label']} loaded")
+            st.success(f"✅ {_display_label} loaded")
+            if _display_label != cfg["label"]:
+                st.caption(f"⚠️ Note: this file was configured as '{cfg['label']}' but its actual backbone "
+                           f"was detected as '{_display_label}' at runtime - label and preprocessing were "
+                           f"corrected automatically.")
         else:
             st.error(f"❌ {cfg['label']} not loaded")
             st.caption(_model_errors.get(cfg["key"], "unknown error")[:200])
 
     if _loaded_models:
-        st.success(f"✅ AI Engine Ready - real inference from: {', '.join(cfg['label'] for cfg in _active_cfgs if cfg['key'] in _loaded_models)}")
+        st.success(f"✅ AI Engine Ready - real inference from: "
+                   f"{', '.join(_runtime_meta.get(cfg['key'], {}).get('label', cfg['label']) for cfg in _active_cfgs if cfg['key'] in _loaded_models)}")
     else:
         st.error("⚠️ No model loaded - falling back to non-model heuristic. Results are NOT clinically meaningful in this mode.")
 
@@ -1511,27 +1584,34 @@ if clicked and img:
     cam_candidates = []  # [(label, model, preprocess_style), ...] -- every loaded model, for ensemble comparison
     per_model = {}
     with st.spinner("Running AI analysis..."):
-        loaded_models, _ = load_models(_get_model_mode())
+        loaded_models, _, runtime_meta = load_models(_get_model_mode())
         if loaded_models:
             try:
-                preds, explanation, per_model = predict_with_models(img, loaded_models)
+                preds, explanation, per_model = predict_with_models(img, loaded_models, runtime_meta)
                 used_real_model = True
-                _cam_style = {"mobilenet": "mobilenet", "custom_cnn": "rescale"}
-                _cam_name = {"mobilenet": "MobileNetV2", "custom_cnn": "ResNet50V2"}
                 for key in ("mobilenet", "custom_cnn"):
                     if key in loaded_models:
-                        cam_candidates.append((_cam_name[key], loaded_models[key], _cam_style[key]))
+                        meta = runtime_meta.get(key, {})
+                        default_style = "mobilenet" if key == "mobilenet" else "resnet"
+                        default_label = "MobileNetV2" if key == "mobilenet" else "ResNet50V2"
+                        cam_candidates.append((
+                            meta.get("label", default_label),
+                            loaded_models[key],
+                            meta.get("preprocess", default_style),
+                        ))
                 # Keep a single "primary" choice for anything that only wants
                 # one heatmap (JSON export, single-model modes, etc.) --
                 # prefer MobileNetV2 since it's the one confirmed reliable.
                 if "mobilenet" in loaded_models:
+                    meta = runtime_meta.get("mobilenet", {})
                     active_model_for_cam = loaded_models["mobilenet"]
-                    active_preprocess_style = "mobilenet"
-                    active_cam_label = "MobileNetV2"
+                    active_preprocess_style = meta.get("preprocess", "mobilenet")
+                    active_cam_label = meta.get("label", "MobileNetV2")
                 elif "custom_cnn" in loaded_models:
+                    meta = runtime_meta.get("custom_cnn", {})
                     active_model_for_cam = loaded_models["custom_cnn"]
-                    active_preprocess_style = "rescale"
-                    active_cam_label = "ResNet50V2"
+                    active_preprocess_style = meta.get("preprocess", "resnet")
+                    active_cam_label = meta.get("label", "ResNet50V2")
             except Exception as e:
                 st.error(f"Model inference failed ({e}); falling back to non-model heuristic.")
                 preds, explanation = predict_with_heuristic(img)
