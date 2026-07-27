@@ -776,40 +776,66 @@ components.html("""
 def validate_mri(pil_img):
     img_gray = np.array(pil_img.convert("L"), dtype=np.float32)
     img_rgb = np.array(pil_img.convert("RGB"), dtype=np.float32)
-    
+
     w, h = pil_img.size
     aspect_ratio = w / h
     good_aspect = 0.5 < aspect_ratio < 2.0
-    
+
     contrast = np.std(img_gray)
     has_contrast = contrast > 5
-    
-    r, g, b = img_rgb[:,:,0], img_rgb[:,:,1], img_rgb[:,:,2]
-    color_std = np.std([np.mean(r), np.mean(g), np.mean(b)])
-    is_grayscale = color_std < 50
-    
+
+    r, g, b = img_rgb[:, :, 0], img_rgb[:, :, 1], img_rgb[:, :, 2]
+    # Per-PIXEL channel divergence, not whole-image channel-MEAN comparison.
+    # The old check compared mean(R), mean(G), mean(B) across the whole
+    # image -- a color photo (a face, clothing, a room) can easily average
+    # out close to "grayscale" overall while being obviously colorful
+    # pixel-by-pixel. This is almost certainly why a photo of a person got
+    # waved through as "100% confidence" valid MRI. Genuine grayscale-source
+    # medical images (even saved as RGB) have R \u2248 G \u2248 B at nearly
+    # every individual pixel, which this check actually measures.
+    per_pixel_color_diff = float(np.mean(np.abs(r - g) + np.abs(g - b) + np.abs(r - b)))
+    is_grayscale = per_pixel_color_diff < 12
+
     dark_pixels = np.sum(img_gray < 40) / img_gray.size
     bright_pixels = np.sum(img_gray > 200) / img_gray.size
     has_range = dark_pixels > 0.005 and bright_pixels > 0.005
-    
+
     texture = np.var(img_gray)
     has_texture = texture > 10
-    
-    criteria_met = sum([good_aspect, has_contrast, is_grayscale, has_range, has_texture])
-    is_valid = criteria_met >= 3
-    confidence = criteria_met / 5.0
-    
+
+    # Axial MRI slices are centered with a mostly-black surrounding
+    # background; ordinary photos usually have non-black content reaching
+    # the frame edges (walls, floors, other people, furniture, etc.).
+    border = max(2, int(min(w, h) * 0.04))
+    edge_pixels = np.concatenate([
+        img_gray[:border, :].ravel(), img_gray[-border:, :].ravel(),
+        img_gray[:, :border].ravel(), img_gray[:, -border:].ravel(),
+    ])
+    dark_border_frac = float(np.mean(edge_pixels < 45))
+    has_dark_border = dark_border_frac > 0.55
+
+    checks = {
+        "aspect ratio": good_aspect,
+        "contrast": has_contrast,
+        "no real color content (grayscale source)": is_grayscale,
+        "brightness range": has_range,
+        "texture": has_texture,
+        "dark image border (centered scan)": has_dark_border,
+    }
+    criteria_met = sum(checks.values())
+    total = len(checks)
+    # is_grayscale and has_dark_border are non-negotiable -- these are the
+    # two properties that most reliably separate a real MRI slice from an
+    # ordinary photo. Everything else needs to mostly agree too.
+    is_valid = is_grayscale and has_dark_border and criteria_met >= total - 1
+    confidence = criteria_met / total
+
     if is_valid:
-        reason = "Image appears to be a valid MRI"
+        reason = "Image appears to be a valid brain MRI"
     else:
-        issues = []
-        if not good_aspect: issues.append(f"aspect ratio {aspect_ratio:.2f}")
-        if not has_contrast: issues.append("very low contrast")
-        if not is_grayscale: issues.append("contains significant color")
-        if not has_range: issues.append("missing dark/bright regions")
-        if not has_texture: issues.append("no texture")
-        reason = f"Image rejected: {', '.join(issues)}"
-    
+        issues = [name for name, ok in checks.items() if not ok]
+        reason = f"Image rejected: fails {', '.join(issues)}"
+
     return is_valid, confidence, reason
 
 def mri_gate_ui(is_valid, confidence, reason, _dk):
@@ -821,7 +847,7 @@ def mri_gate_ui(is_valid, confidence, reason, _dk):
   <span style="font-size:18px;">✅</span>
   <div>
     <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:#22c55e;">Brain MRI verified</span>
-    <span style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.4);margin-left:10px;">Confidence: {pct}%</span>
+    <span style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.65)"};margin-left:10px;">Confidence: {pct}%</span>
   </div>
 </div>""", unsafe_allow_html=True)
     else:
@@ -1189,7 +1215,7 @@ with st.sidebar:
     if _loaded_models:
         st.success("✅ AI Engine Ready (real model inference)")
     else:
-        st.error("⚠️ No model loaded — falling back to non-model heuristic. Results are NOT clinically meaningful in this mode.")
+        st.error("⚠️ No model loaded - falling back to non-model heuristic. Results are NOT clinically meaningful in this mode.")
 
     if st.button("🔄 Retry / reload models", help="Clears the cached model state and retries loading + downloading from scratch, without needing a full redeploy."):
         load_models.clear()
@@ -1494,7 +1520,7 @@ if clicked and img:
         if used_real_model:
             st.caption(f"🧠 {explanation}")
         else:
-            st.warning("⚠️ **No trained model was available** — this result comes from a non-model pixel-heuristic fallback and should **not** be used for clinical or research evaluation. Fix model loading (see sidebar) before relying on this output.")
+            st.warning("⚠️ **No trained model was available** - this result comes from a non-model pixel-heuristic fallback and should **not** be used for clinical or research evaluation. Fix model loading (see sidebar) before relying on this output.")
 
     pidx = int(np.argmax(preds))
     pcls = CLASS_NAMES[pidx]
@@ -1508,7 +1534,7 @@ if clicked and img:
   var ti = document.getElementById('ns-toast-title');
   var ts = document.getElementById('ns-toast-sub');
   if (ti) ti.textContent = 'Result: {pcls} ({conf:.1f}%)';
-  if (ts) ts.textContent = 'Risk: {rl} — scroll down for full report';
+  if (ts) ts.textContent = 'Risk: {rl} - scroll down for full report';
   if (t) {{
     t.style.animation = 'none';
     t.offsetHeight;
@@ -1520,7 +1546,7 @@ if clicked and img:
 
     with col_out:
         if conf < 55.0:
-            st.warning(f"⚠️ **Low Confidence ({conf:.1f}%)** — Specialist review recommended.")
+            st.warning(f"⚠️ **Low Confidence ({conf:.1f}%)** - Specialist review recommended.")
 
     # Step 3: Heatmap
     heatmap_is_real = False
@@ -1597,7 +1623,7 @@ if clicked and img:
   <div class="risk-chip {rc}">
     <span class="rdot {dc}"></span>{rl} RISK
   </div>
-  <div style="margin-top:12px;font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.5);">
+  <div style="margin-top:12px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.65)"};">
     {explanation}
   </div>
 </div>""", unsafe_allow_html=True)
@@ -1727,7 +1753,7 @@ if clicked and img:
 
     st.markdown(f"""
 <div class="disc">
-  <strong>AI-Assisted Decision Support Only</strong> —
+  <strong>AI-Assisted Decision Support Only</strong> -
   {report.get("disclaimer", "")}
   All findings require review by a licensed radiologist or neurosurgeon.
 </div>""", unsafe_allow_html=True)
