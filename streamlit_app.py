@@ -94,8 +94,9 @@ def _get_model_mode():
             pass
     return DEFAULT_MODEL_MODE
 
-def _active_model_configs():
-    mode = _get_model_mode()
+def _active_model_configs(mode=None):
+    if mode is None:
+        mode = _get_model_mode()
     if mode == "ensemble":
         return MODEL_CONFIGS
     return [c for c in MODEL_CONFIGS if c["key"] == mode] or MODEL_CONFIGS[:1]
@@ -180,16 +181,21 @@ def _ensure_model_downloaded(cfg):
     return path, None
 
 @st.cache_resource(show_spinner=False)
-def load_models():
+def load_models(mode):
     """
-    Loads the model(s) selected by MODEL_MODE (see _active_model_configs),
-    downloading real weights first if the local copy is missing or is an
-    unresolved Git LFS pointer stub.
+    Loads the model(s) selected by `mode`, downloading real weights first if
+    the local copy is missing or is an unresolved Git LFS pointer stub.
     Returns (loaded: dict[key -> keras.Model], errors: dict[key -> str]).
-    Cached so models are loaded/downloaded once per session, not every click.
+
+    IMPORTANT: `mode` must be an explicit parameter, not read from session
+    state/secrets inside the function body. st.cache_resource keys its cache
+    purely on function arguments -- a zero-argument version of this function
+    would return the SAME cached result for every mode after the first call,
+    silently showing stale "not loaded" state for models that were never
+    even attempted under whatever mode happened to be cached first. Passing
+    `mode` in gives each mode its own independent cache entry.
     """
     loaded, errors = {}, {}
-    mode = _get_model_mode()
     _log(f"load_models() starting, MODEL_MODE={mode!r}")
     if not TF_AVAILABLE:
         _log(f"ERROR: TensorFlow not available: {TF_IMPORT_ERROR}")
@@ -197,7 +203,7 @@ def load_models():
         return loaded, errors
     _log(f"TensorFlow version: {tf.__version__}")
 
-    for cfg in _active_model_configs():
+    for cfg in _active_model_configs(mode):
         tag = f"[{cfg['key']}]"
         path, err = _ensure_model_downloaded(cfg)
         if err:
@@ -851,7 +857,10 @@ def mri_gate_ui(is_valid, confidence, reason, _dk):
   </div>
 </div>""", unsafe_allow_html=True)
     else:
-        st.error(f"❌ {reason}")
+        st.error("❌ **A brain MRI image is required.** This doesn't look like a brain MRI scan, "
+                  "please upload an axial T1 or T2-weighted brain MRI (or select one of the sample images).")
+        with st.expander("Why was this rejected?"):
+            st.caption(reason)
         if st.button("⚠️ Override and Continue"):
             st.session_state.override_mri = True
             st.rerun()
@@ -1175,9 +1184,20 @@ with st.sidebar:
     
     st.markdown("#### System Status")
 
-    _loaded_models, _model_errors = load_models()
-    _active_cfgs = _active_model_configs()
     _mode = _get_model_mode()
+    _loaded_models, _model_errors = load_models(_mode)
+    _active_cfgs = _active_model_configs(_mode)
+
+    # If something failed to load (e.g. a transient network hiccup on a cold
+    # start), automatically retry once per mode before showing the user an
+    # error -- otherwise a one-off blip gets cached and silently sticks
+    # until someone happens to find the manual "Retry / reload models"
+    # button, which is exactly the confusing state reported in production.
+    _missing = [c["key"] for c in _active_cfgs if c["key"] not in _loaded_models]
+    if _missing and not st.session_state.get(f"_auto_retried_{_mode}"):
+        st.session_state[f"_auto_retried_{_mode}"] = True
+        load_models.clear()
+        st.rerun()
 
     if TF_AVAILABLE:
         st.success("✅ TensorFlow Installed")
@@ -1486,17 +1506,21 @@ if clicked and img:
     active_model_for_cam = None
     active_preprocess_style = None
     active_cam_label = None
+    cam_candidates = []  # [(label, model, preprocess_style), ...] -- every loaded model, for ensemble comparison
     with st.spinner("Running AI analysis..."):
-        loaded_models, _ = load_models()
+        loaded_models, _ = load_models(_get_model_mode())
         if loaded_models:
             try:
                 preds, explanation, per_model = predict_with_models(img, loaded_models)
                 used_real_model = True
-                # Prefer MobileNetV2 for Grad-CAM if available (cleaner conv structure);
-                # otherwise use whichever single model is loaded. In ensemble mode the
-                # final PREDICTION still averages both models -- only the heatmap
-                # visualization itself comes from one backbone, and the UI says so
-                # explicitly below so this is never ambiguous to a reviewer.
+                _cam_style = {"mobilenet": "mobilenet", "custom_cnn": "rescale"}
+                _cam_name = {"mobilenet": "MobileNetV2", "custom_cnn": "ResNet50V2"}
+                for key in ("mobilenet", "custom_cnn"):
+                    if key in loaded_models:
+                        cam_candidates.append((_cam_name[key], loaded_models[key], _cam_style[key]))
+                # Keep a single "primary" choice for anything that only wants
+                # one heatmap (JSON export, single-model modes, etc.) --
+                # prefer MobileNetV2 since it's the one confirmed reliable.
                 if "mobilenet" in loaded_models:
                     active_model_for_cam = loaded_models["mobilenet"]
                     active_preprocess_style = "mobilenet"
@@ -1550,25 +1574,40 @@ if clicked and img:
 
     # Step 3: Heatmap
     heatmap_is_real = False
+    cam_results = {}  # label -> (heatmap, overlay, is_real)
     with st.spinner("Generating Grad-CAM heatmap..."):
         heatmap = None
-        if used_real_model and active_model_for_cam is not None:
-            try:
-                heatmap = generate_gradcam(img, active_model_for_cam, active_preprocess_style, pidx)
-                heatmap_is_real = heatmap is not None
-            except Exception as e:
-                st.caption(f"Grad-CAM computation failed ({e}); showing synthetic heatmap instead.")
+        if used_real_model and cam_candidates:
+            for label, cand_model, cand_style in cam_candidates:
+                try:
+                    cand_heatmap = generate_gradcam(img, cand_model, cand_style, pidx)
+                except Exception as e:
+                    st.caption(f"Grad-CAM computation failed for {label} ({e}).")
+                    cand_heatmap = None
+                is_real = cand_heatmap is not None
+                if cand_heatmap is None:
+                    cand_heatmap = generate_heatmap(img, pcls)
+                cand_overlay = overlay_heatmap(img, cand_heatmap, alpha=alpha)
+                cam_results[label] = (cand_heatmap, cand_overlay, is_real)
+            # Primary heatmap/overlay (used for the JSON export, activation
+            # stats, etc.) is whichever one the rest of the app already
+            # expects as "the" heatmap -- prefer MobileNetV2 for consistency
+            # with what's been validated end-to-end.
+            if active_cam_label and active_cam_label in cam_results:
+                heatmap, overlay, heatmap_is_real = cam_results[active_cam_label]
+            else:
+                heatmap, overlay, heatmap_is_real = next(iter(cam_results.values()))
         if heatmap is None:
             heatmap = generate_heatmap(img, pcls)
-        overlay = overlay_heatmap(img, heatmap, alpha=alpha)
+            overlay = overlay_heatmap(img, heatmap, alpha=alpha)
 
     if not heatmap_is_real:
         with col_out:
             st.caption("ℹ️ Heatmap shown is a synthetic approximation, not a true Grad-CAM from model gradients (no compatible conv layer / model available).")
-    elif len(loaded_models) > 1:
+    elif len(cam_results) > 1:
         with col_out:
             st.caption(f"🔬 Prediction is the ensemble average of {', '.join(cfg['label'] for cfg in _active_model_configs() if cfg['key'] in loaded_models)}. "
-                       f"Grad-CAM heatmap is computed from the {active_cam_label} backbone specifically.")
+                       f"Grad-CAM is shown for each backbone separately below so both can be compared directly.")
 
     mean_a = float(heatmap.mean())
     max_a = float(heatmap.max())
@@ -1654,10 +1693,21 @@ if clicked and img:
 </div>""", unsafe_allow_html=True)
 
     with res_right:
-        st.markdown('<div class="hm-img-frame">', unsafe_allow_html=True)
-        st.image(overlay, width='stretch')
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown(f"""
+        if len(cam_results) > 1:
+            cam_cols = st.columns(len(cam_results), gap="small")
+            for (label, (r_heatmap, r_overlay, r_is_real)), cam_col in zip(cam_results.items(), cam_cols):
+                with cam_col:
+                    st.markdown('<div class="hm-img-frame">', unsafe_allow_html=True)
+                    st.image(r_overlay, width='stretch')
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    _tag = "" if r_is_real else " (synthetic)"
+                    st.markdown(f"""
+<div style="text-align:center;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.40)" if _dk else "rgba(10,22,40,.50)"};letter-spacing:.1em;">{label} Grad-CAM{_tag}</div>""", unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="hm-img-frame">', unsafe_allow_html=True)
+            st.image(overlay, width='stretch')
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f"""
 <div style="text-align:center;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.40)" if _dk else "rgba(10,22,40,.50)"};letter-spacing:.1em;">Grad-CAM Overlay | {pcls}</div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="height:1px;background:{"rgba(255,255,255,.08)" if _dk else "rgba(10,22,40,.12)"};margin:16px 0 14px"></div>', unsafe_allow_html=True)
