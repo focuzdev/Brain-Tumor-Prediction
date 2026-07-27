@@ -1233,7 +1233,7 @@ with st.sidebar:
             st.caption(_model_errors.get(cfg["key"], "unknown error")[:200])
 
     if _loaded_models:
-        st.success("✅ AI Engine Ready (real model inference)")
+        st.success(f"✅ AI Engine Ready - real inference from: {', '.join(cfg['label'] for cfg in _active_cfgs if cfg['key'] in _loaded_models)}")
     else:
         st.error("⚠️ No model loaded - falling back to non-model heuristic. Results are NOT clinically meaningful in this mode.")
 
@@ -1606,8 +1606,13 @@ if clicked and img:
             st.caption("ℹ️ Heatmap shown is a synthetic approximation, not a true Grad-CAM from model gradients (no compatible conv layer / model available).")
     elif len(cam_results) > 1:
         with col_out:
-            st.caption(f"🔬 Prediction is the ensemble average of {', '.join(cfg['label'] for cfg in _active_model_configs() if cfg['key'] in loaded_models)}. "
-                       f"Grad-CAM is shown for each backbone separately below so both can be compared directly.")
+            st.caption(f"🔬 The {conf:.1f}% confidence prediction above is the genuine ensemble average of "
+                       f"{', '.join(cfg['label'] for cfg in _active_model_configs() if cfg['key'] in loaded_models)}. "
+                       f"Their Grad-CAM heatmaps are shown separately below, not blended into one image, because "
+                       f"the two architectures have different internal feature representations and there's no "
+                       f"meaningful way to average their attention maps together. It's expected for them to "
+                       f"highlight somewhat different regions even when they agree on the diagnosis; that's a "
+                       f"sign these are genuinely independent computations, not a duplicated image.")
 
     mean_a = float(heatmap.mean())
     max_a = float(heatmap.max())
