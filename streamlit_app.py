@@ -53,7 +53,11 @@ MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 # commit URLs: st.secrets.get("BRAIN_TUMOR_MODEL_URL"), etc.
 MODEL_CONFIGS = [
     {
-        "key": "custom_cnn", "label": "Custom CNN", "file": "brain_tumor_model.h5",
+        # Your own training_history.png labels this "ResNet50V2 - Accuracy" --
+        # it's not a generic custom CNN, it's a ResNet50V2 backbone. Fixed
+        # the display label to match; the internal `key` stays "custom_cnn"
+        # so existing secrets/session state referencing that key still work.
+        "key": "custom_cnn", "label": "ResNet50V2", "file": "brain_tumor_model.h5",
         "preprocess": "rescale", "expected_size": 230584088,
         "url": "https://media.githubusercontent.com/media/focuzdev/Brain-Tumor-Prediction/master/brain_tumor_model.h5",
     },
@@ -68,14 +72,14 @@ MODEL_CONFIGS = [
 # Streamlit Community Cloud's free tier gives ~1GB RAM. custom_cnn's weights
 # alone are ~220MB on disk, and TensorFlow typically needs several times a
 # model's file size in RAM once loaded (graph + activations + runtime
-# overhead) -- loading BOTH models for an ensemble is what triggered the
-# "app has been throttled" warning in production. Default to the smaller,
-# cheaper model only; opt into the full ensemble explicitly once you've
-# confirmed the deployment has enough headroom (e.g. a paid tier, or after
-# testing custom_cnn loads fine on its own).
+# overhead). Ensemble mode has since been confirmed in production logs to
+# load both models cleanly without triggering the earlier CPU/RAM throttle,
+# so it's now the default -- averaging both models' predictions should be
+# more robust than relying on either one alone. If throttling reappears,
+# drop back to a single model via the sidebar or the secret below.
 #
 # Override via Streamlit secrets: MODEL_MODE = "ensemble" | "mobilenet" | "custom_cnn"
-DEFAULT_MODEL_MODE = "mobilenet"
+DEFAULT_MODEL_MODE = "ensemble"
 
 def _get_model_mode():
     # A live choice made in the sidebar (this session) always wins -- lets
@@ -1155,11 +1159,11 @@ with st.sidebar:
         st.error("❌ TensorFlow Not Installed")
         st.caption(TF_IMPORT_ERROR[:200])
 
-    _mode_options = ["mobilenet", "custom_cnn", "ensemble"]
+    _mode_options = ["ensemble", "mobilenet", "custom_cnn"]
     _mode_labels = {
+        "ensemble": "Both models (ResNet50V2 + MobileNetV2, averaged)",
         "mobilenet": "MobileNetV2 only (lighter, faster)",
-        "custom_cnn": "Custom CNN only (heavier)",
-        "ensemble": "Both models (ensemble, most memory)",
+        "custom_cnn": "ResNet50V2 only (heavier)",
     }
     _picked = st.selectbox(
         "Model mode",
@@ -1455,6 +1459,7 @@ if clicked and img:
     used_real_model = False
     active_model_for_cam = None
     active_preprocess_style = None
+    active_cam_label = None
     with st.spinner("Running AI analysis..."):
         loaded_models, _ = load_models()
         if loaded_models:
@@ -1462,13 +1467,18 @@ if clicked and img:
                 preds, explanation, per_model = predict_with_models(img, loaded_models)
                 used_real_model = True
                 # Prefer MobileNetV2 for Grad-CAM if available (cleaner conv structure);
-                # otherwise use whichever single model is loaded.
+                # otherwise use whichever single model is loaded. In ensemble mode the
+                # final PREDICTION still averages both models -- only the heatmap
+                # visualization itself comes from one backbone, and the UI says so
+                # explicitly below so this is never ambiguous to a reviewer.
                 if "mobilenet" in loaded_models:
                     active_model_for_cam = loaded_models["mobilenet"]
                     active_preprocess_style = "mobilenet"
+                    active_cam_label = "MobileNetV2"
                 elif "custom_cnn" in loaded_models:
                     active_model_for_cam = loaded_models["custom_cnn"]
                     active_preprocess_style = "rescale"
+                    active_cam_label = "ResNet50V2"
             except Exception as e:
                 st.error(f"Model inference failed ({e}); falling back to non-model heuristic.")
                 preds, explanation = predict_with_heuristic(img)
@@ -1529,6 +1539,10 @@ if clicked and img:
     if not heatmap_is_real:
         with col_out:
             st.caption("ℹ️ Heatmap shown is a synthetic approximation, not a true Grad-CAM from model gradients (no compatible conv layer / model available).")
+    elif len(loaded_models) > 1:
+        with col_out:
+            st.caption(f"🔬 Prediction is the ensemble average of {', '.join(cfg['label'] for cfg in _active_model_configs() if cfg['key'] in loaded_models)}. "
+                       f"Grad-CAM heatmap is computed from the {active_cam_label} backbone specifically.")
 
     mean_a = float(heatmap.mean())
     max_a = float(heatmap.max())
