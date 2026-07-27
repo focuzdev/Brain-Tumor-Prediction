@@ -72,14 +72,16 @@ MODEL_CONFIGS = [
 # Streamlit Community Cloud's free tier gives ~1GB RAM. custom_cnn's weights
 # alone are ~220MB on disk, and TensorFlow typically needs several times a
 # model's file size in RAM once loaded (graph + activations + runtime
-# overhead). Ensemble mode has since been confirmed in production logs to
-# load both models cleanly without triggering the earlier CPU/RAM throttle,
-# so it's now the default -- averaging both models' predictions should be
-# more robust than relying on either one alone. If throttling reappears,
-# drop back to a single model via the sidebar or the secret below.
+# overhead). MobileNetV2 is the default: it's the model that's been most
+# thoroughly tested and confirmed reliable end-to-end (real inference, real
+# Grad-CAM), it's lighter on resources, and ensemble mode hasn't yet shown a
+# clear accuracy improvement over it to justify the extra memory cost and
+# added complexity of interpreting two disagreeing models. Switch to
+# "ensemble" once you've validated it against your labeled samples and are
+# comfortable with how disagreement between the two models is surfaced.
 #
 # Override via Streamlit secrets: MODEL_MODE = "ensemble" | "mobilenet" | "custom_cnn"
-DEFAULT_MODEL_MODE = "ensemble"
+DEFAULT_MODEL_MODE = "mobilenet"
 
 def _get_model_mode():
     # A live choice made in the sidebar (this session) always wins -- lets
@@ -1205,7 +1207,7 @@ with st.sidebar:
         st.error("❌ TensorFlow Not Installed")
         st.caption(TF_IMPORT_ERROR[:200])
 
-    _mode_options = ["ensemble", "mobilenet", "custom_cnn"]
+    _mode_options = ["mobilenet", "ensemble", "custom_cnn"]
     _mode_labels = {
         "ensemble": "Both models (ResNet50V2 + MobileNetV2, averaged)",
         "mobilenet": "MobileNetV2 only (lighter, faster)",
@@ -1507,6 +1509,7 @@ if clicked and img:
     active_preprocess_style = None
     active_cam_label = None
     cam_candidates = []  # [(label, model, preprocess_style), ...] -- every loaded model, for ensemble comparison
+    per_model = {}
     with st.spinner("Running AI analysis..."):
         loaded_models, _ = load_models(_get_model_mode())
         if loaded_models:
@@ -1604,15 +1607,28 @@ if clicked and img:
     if not heatmap_is_real:
         with col_out:
             st.caption("ℹ️ Heatmap shown is a synthetic approximation, not a true Grad-CAM from model gradients (no compatible conv layer / model available).")
-    elif len(cam_results) > 1:
+
+    if len(per_model) > 1:
         with col_out:
-            st.caption(f"🔬 The {conf:.1f}% confidence prediction above is the genuine ensemble average of "
-                       f"{', '.join(cfg['label'] for cfg in _active_model_configs() if cfg['key'] in loaded_models)}. "
-                       f"Their Grad-CAM heatmaps are shown separately below, not blended into one image, because "
-                       f"the two architectures have different internal feature representations and there's no "
-                       f"meaningful way to average their attention maps together. It's expected for them to "
-                       f"highlight somewhat different regions even when they agree on the diagnosis; that's a "
-                       f"sign these are genuinely independent computations, not a duplicated image.")
+            st.markdown(f"""<div style="font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.60)"};text-transform:uppercase;letter-spacing:.1em;margin:10px 0 6px;">Individual model votes (before averaging)</div>""", unsafe_allow_html=True)
+            for _label, _p in per_model.items():
+                _top_i = int(np.argmax(_p))
+                _agree = (_top_i == pidx)
+                _icon = "✅" if _agree else "⚠️"
+                st.caption(f"{_icon} **{_label}**: {CLASS_NAMES[_top_i]} ({_p[_top_i]*100:.1f}%)"
+                           + ("" if _agree else f" - disagrees with the ensemble result ({pcls})"))
+            st.caption(f"🔬 The {conf:.1f}% confidence prediction above is the average of both models' full probability "
+                       f"vectors above (a standard ensemble technique, sometimes called 'soft voting') - a legitimate "
+                       f"way to combine final predictions since both output the same 4 class probabilities. This is "
+                       f"different from the Grad-CAM heatmaps below, which are shown separately rather than blended, "
+                       f"because the two architectures' internal features don't share a common space the way their "
+                       f"final probabilities do.")
+
+    if heatmap_is_real and len(cam_results) > 1:
+        with col_out:
+            st.caption("Grad-CAM heatmaps are shown separately per backbone below. It's expected for them to "
+                       "highlight somewhat different regions even when the models agree on the diagnosis; that's a "
+                       "sign these are genuinely independent computations, not a duplicated image.")
 
     mean_a = float(heatmap.mean())
     max_a = float(heatmap.max())
