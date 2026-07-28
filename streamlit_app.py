@@ -1975,23 +1975,28 @@ if clicked and img:
 
     # Model Performance
     st.markdown("---")
-    st.markdown('<div class="slbl">Model Performance</div>', unsafe_allow_html=True)
-    st.markdown("""
+    st.markdown('<div class="slbl">Model Performance (Validation Results)</div>', unsafe_allow_html=True)
+    st.markdown(f"""
 <div class="glass">
+  <div style="font-size:11px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.62)"};line-height:1.6;margin-bottom:14px;">
+    Measured once on a held-out validation set during training (see confusion_matrix_ensemble.png in the
+    repo), not a live guarantee for any single scan you upload. Individual results above can and do vary from
+    these averages, especially at lower confidence.
+  </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:14px;">
     <div class="hm-stat" style="border:1px solid rgba(56,189,248,.1);border-radius:10px;padding:10px">
-      <div class="hm-sv">95.31%</div><div class="hm-sl">Accuracy</div></div>
+      <div class="hm-sv">95.31%</div><div class="hm-sl">Overall Accuracy</div></div>
     <div class="hm-stat" style="border:1px solid rgba(56,189,248,.1);border-radius:10px;padding:10px">
-      <div class="hm-sv">100%</div><div class="hm-sl">No Tumor</div></div>
+      <div class="hm-sv">100%</div><div class="hm-sl">No Tumor Recall</div></div>
     <div class="hm-stat" style="border:1px solid rgba(56,189,248,.1);border-radius:10px;padding:10px">
-      <div class="hm-sv">99.8%</div><div class="hm-sl">Pituitary</div></div>
+      <div class="hm-sv">99.8%</div><div class="hm-sl">Pituitary Recall</div></div>
     <div class="hm-stat" style="border:1px solid rgba(56,189,248,.1);border-radius:10px;padding:10px">
-      <div class="hm-sv">98.0%</div><div class="hm-sl">Meningioma</div></div>
+      <div class="hm-sv">98.0%</div><div class="hm-sl">Meningioma Recall</div></div>
     <div class="hm-stat" style="border:1px solid rgba(56,189,248,.1);border-radius:10px;padding:10px">
-      <div class="hm-sv">83.5%</div><div class="hm-sl">Glioma</div></div>
+      <div class="hm-sv">83.5%</div><div class="hm-sl">Glioma Recall</div></div>
   </div>
-  <div style="font-size:12px;color:rgba(255,255,255,.38);line-height:1.78;">
-    Using smart heuristic engine with clinical-grade reasoning.
+  <div style="font-size:12px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.60)"};line-height:1.78;">
+    Predictions come from real trained ResNet50V2/MobileNetV2 models with genuine Grad-CAM explainability, not a rule-based heuristic.
   </div>
 </div>
 """, unsafe_allow_html=True)
