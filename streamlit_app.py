@@ -1322,11 +1322,11 @@ with st.sidebar:
     temperature = st.slider("Temperature", 1.0, 2.5, 1.4, 0.1)
     
     st.markdown("---")
-    st.markdown("""
-    <div style="background:rgba(245,158,11,.07);border-left:3px solid #f59e0b;
+    st.markdown(f"""
+    <div style="background:rgba(245,158,11,.10);border-left:3px solid #f59e0b;
       border-radius:0 8px 8px 0;padding:10px 12px;font-family:'DM Mono',monospace;
-      font-size:9.5px;color:rgba(253,211,77,.92);line-height:1.7;">
-      <strong style="color:#fbbf24;">Clinical Disclaimer</strong><br>
+      font-size:9.5px;color:{"rgba(253,211,77,.92)" if _dk else "#7c4a03"};line-height:1.7;">
+      <strong style="color:{"#fbbf24" if _dk else "#92400e"};">Clinical Disclaimer</strong><br>
       AI decision support only. Not a substitute for professional medical diagnosis.
     </div>
     """, unsafe_allow_html=True)
@@ -1470,10 +1470,10 @@ with col_in:
         </div>''', unsafe_allow_html=True)
         st.image(img, width='stretch', clamp=True)
     else:
-        st.markdown('''<div style="border:2px dashed rgba(56,189,248,.38);border-radius:14px;padding:2.5rem 1.5rem;text-align:center;background:rgba(56,189,248,.05);margin:8px 0;">
+        st.markdown(f'''<div style="border:2px dashed rgba(56,189,248,.38);border-radius:14px;padding:2.5rem 1.5rem;text-align:center;background:rgba(56,189,248,.05);margin:8px 0;">
           <div style="font-size:40px;margin-bottom:12px;">🩻</div>
-          <div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600;color:#e2e8f0;margin-bottom:6px;">No image selected</div>
-          <div style="font-family:DM Mono,monospace;font-size:10px;color:rgba(255,255,255,.58);letter-spacing:.07em;line-height:1.9;">
+          <div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600;color:{text_color};margin-bottom:6px;">No image selected</div>
+          <div style="font-family:DM Mono,monospace;font-size:10px;color:{"rgba(255,255,255,.58)" if _dk else "rgba(10,22,40,.62)"};letter-spacing:.07em;line-height:1.9;">
             Upload a brain MRI above<br>or pick a sample below
           </div>
         </div>''', unsafe_allow_html=True)
