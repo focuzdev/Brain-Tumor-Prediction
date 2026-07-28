@@ -1076,26 +1076,41 @@ def generate_heatmap(img, pred_class):
 def _mask_heatmap_to_tissue(heatmap, orig_gray):
     """
     Zeroes out heatmap activation outside the actual brain tissue region and
-    rescales so the tissue region's own max defines "high" (red).
+    rescales so a robust high percentile *within tissue* defines "high" (red),
+    then lightly smooths the result.
 
     Why this matters: conv layers use zero-padding, which creates well-known
     border artifacts in feature maps (edge pixels are computed from fewer/
     zero-padded neighbors and behave differently from interior pixels).
     When a small feature map (e.g. 7x7) gets upsampled to full resolution,
-    these artifacts get stretched into the image corners/edges. If the
-    heatmap is then normalized by its single global max, a modest corner
-    artifact -- not real anatomical signal -- can end up defining the
-    entire color scale, making genuine tumor-region activation look
-    artificially cooler than a background artifact. Since MRI backgrounds
-    are reliably black (already relied on by validate_mri's dark-border
-    check), masking to tissue and renormalizing within just that region
-    fixes this directly rather than papering over it.
+    these artifacts get stretched into the image corners/edges/boundary
+    region, and the blocky upsampling itself can produce sharp, geometric-
+    looking bands that are easy to mistake for real anatomical tracing.
+
+    Two deliberate choices here:
+    1. Normalizing by the 98th percentile (not the raw max) within tissue,
+       so a small number of outlier/artifact pixels can't single-handedly
+       define the entire color scale the way one dominant max pixel could.
+    2. A light Gaussian blur after masking, to soften blocky resize
+       artifacts into something visually distinguishable from a genuinely
+       smooth, focal anatomical hotspot.
+
+    IMPORTANT CAVEAT this does NOT fix: if the model's gradients are
+    genuinely, consistently responding to skull/scalp boundary content
+    (not just an upsampling artifact), that's a real property of what the
+    model learned -- possibly "shortcut learning" on image framing rather
+    than tissue content -- and no visualization-layer fix can correct that.
+    It would need investigating at the dataset/training level, not here.
     """
     tissue_mask = (orig_gray > 22).astype(np.float32)
     masked = heatmap * tissue_mask
-    tissue_max = masked.max()
-    if tissue_max > 1e-6:
-        masked = masked / tissue_max
+    tissue_pixels = masked[tissue_mask > 0]
+    ref = np.percentile(tissue_pixels, 98) if tissue_pixels.size else 0.0
+    if ref > 1e-6:
+        masked = masked / ref
+    masked = np.clip(masked, 0, 1)
+    masked = cv2.GaussianBlur(masked, (9, 9), 0)
+    masked = masked * tissue_mask  # re-zero background after blur bleeds it back in slightly
     return np.clip(masked, 0, 1)
 
 def overlay_heatmap(img, heatmap, alpha=0.55):
@@ -1848,6 +1863,11 @@ if clicked and img:
                     _disagree_note = "" if r_own_cls == pcls else f" - this model's own top call, differs from ensemble's {pcls}"
                     st.markdown(f"""
 <div style="text-align:center;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.40)" if _dk else "rgba(10,22,40,.50)"};letter-spacing:.1em;">{label} Grad-CAM | explains: {r_own_cls}{_tag}{_disagree_note}</div>""", unsafe_allow_html=True)
+                    if r_own_cls == "No Tumor":
+                        st.caption("⚠️ A 'No Tumor' Grad-CAM has no lesion to point at, so it's inherently harder to "
+                                   "interpret than a positive finding. If the highlighted region traces skull/scalp "
+                                   "boundary rather than diffuse interior tissue, treat that as a signal the model "
+                                   "may be keying off image framing, not genuine absence of pathology.")
         else:
             st.markdown('<div class="hm-img-frame">', unsafe_allow_html=True)
             st.image(overlay, width='stretch')
