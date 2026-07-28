@@ -1307,11 +1307,10 @@ with st.sidebar:
             st.caption(_model_errors.get(cfg["key"], "unknown error")[:200])
 
     if _loaded_models:
-        st.success(f"✅ Ready: brain tumor classification is running on a real trained model "
-                   f"({', '.join(_runtime_meta.get(cfg['key'], {}).get('label', cfg['label']) for cfg in _active_cfgs if cfg['key'] in _loaded_models)}), "
-                   f"not a placeholder or fallback.")
+        st.success(f"✅ Ready to classify using: "
+                   f"{', '.join(_runtime_meta.get(cfg['key'], {}).get('label', cfg['label']) for cfg in _active_cfgs if cfg['key'] in _loaded_models)}")
     else:
-        st.error("⚠️ No trained model loaded - using a basic fallback method instead of a real classifier. Results should NOT be used for clinical or research purposes.")
+        st.error("⚠️ No model loaded - using basic fallback only. Not for clinical use.")
 
     if st.button("🔄 Retry / reload models", help="Clears the cached model state and retries loading + downloading from scratch, without needing a full redeploy."):
         load_models.clear()
