@@ -1073,9 +1073,36 @@ def generate_heatmap(img, pred_class):
     
     return heatmap
 
+def _mask_heatmap_to_tissue(heatmap, orig_gray):
+    """
+    Zeroes out heatmap activation outside the actual brain tissue region and
+    rescales so the tissue region's own max defines "high" (red).
+
+    Why this matters: conv layers use zero-padding, which creates well-known
+    border artifacts in feature maps (edge pixels are computed from fewer/
+    zero-padded neighbors and behave differently from interior pixels).
+    When a small feature map (e.g. 7x7) gets upsampled to full resolution,
+    these artifacts get stretched into the image corners/edges. If the
+    heatmap is then normalized by its single global max, a modest corner
+    artifact -- not real anatomical signal -- can end up defining the
+    entire color scale, making genuine tumor-region activation look
+    artificially cooler than a background artifact. Since MRI backgrounds
+    are reliably black (already relied on by validate_mri's dark-border
+    check), masking to tissue and renormalizing within just that region
+    fixes this directly rather than papering over it.
+    """
+    tissue_mask = (orig_gray > 22).astype(np.float32)
+    masked = heatmap * tissue_mask
+    tissue_max = masked.max()
+    if tissue_max > 1e-6:
+        masked = masked / tissue_max
+    return np.clip(masked, 0, 1)
+
 def overlay_heatmap(img, heatmap, alpha=0.55):
     orig = np.array(img.convert("RGB").resize((224, 224)), dtype=np.float32)
-    
+    orig_gray = np.mean(orig, axis=2)
+    heatmap = _mask_heatmap_to_tissue(np.asarray(heatmap, dtype=np.float32), orig_gray)
+
     hm_colored = (mpl_cm.jet(heatmap)[:, :, :3] * 255).astype(np.float32)
     gray = np.mean(orig, axis=2, keepdims=True)
     desat = orig * 0.4 + gray * 0.6
@@ -1723,10 +1750,13 @@ if clicked and img:
                        "model* actually concluded, so it always reflects that model's real reasoning rather than "
                        "being forced to justify an answer it didn't give.")
 
-    mean_a = float(heatmap.mean())
-    max_a = float(heatmap.max())
-    p90_a = float(np.percentile(heatmap, 90))
-    focus_p = float((heatmap > 0.5).sum() / heatmap.size * 100)
+    _stats_gray = np.mean(np.array(img.convert("RGB").resize(IMG_SIZE), dtype=np.float32), axis=2)
+    _masked_heatmap_for_stats = _mask_heatmap_to_tissue(np.asarray(heatmap, dtype=np.float32), _stats_gray)
+    mean_a = float(_masked_heatmap_for_stats.mean())
+    max_a = float(_masked_heatmap_for_stats.max())
+    p90_a = float(np.percentile(_masked_heatmap_for_stats, 90))
+    focus_p = float((_masked_heatmap_for_stats > 0.5).sum() / _masked_heatmap_for_stats.size * 100)
+    heatmap = _masked_heatmap_for_stats  # use the tissue-masked version for every downstream panel/export too
 
     # Step 4: Report
     with st.spinner("Generating clinical report..."):
