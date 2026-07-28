@@ -1657,29 +1657,40 @@ if clicked and img:
 
     # Step 3: Heatmap
     heatmap_is_real = False
-    cam_results = {}  # label -> (heatmap, overlay, is_real)
+    cam_results = {}  # label -> (heatmap, overlay, is_real, own_top_class)
     with st.spinner("Generating Grad-CAM heatmap..."):
         heatmap = None
         if used_real_model and cam_candidates:
             for label, cand_model, cand_style in cam_candidates:
+                # IMPORTANT: use THIS model's own top predicted class, not the
+                # ensemble's. Forcing every model's Grad-CAM to target the
+                # ensemble's chosen class produces a heatmap answering "why
+                # does this look like {ensemble class}" even for a model that
+                # itself predicted something else entirely -- that's not
+                # that model's real reasoning, it's a misleading question to
+                # ask its gradients. Each panel should explain what that
+                # specific model actually concluded.
+                own_pred = per_model.get(label)
+                own_pidx = int(np.argmax(own_pred)) if own_pred is not None else pidx
+                own_pcls = CLASS_NAMES[own_pidx]
                 try:
-                    cand_heatmap = generate_gradcam(img, cand_model, cand_style, pidx)
+                    cand_heatmap = generate_gradcam(img, cand_model, cand_style, own_pidx)
                 except Exception as e:
                     st.caption(f"Grad-CAM computation failed for {label} ({e}).")
                     cand_heatmap = None
                 is_real = cand_heatmap is not None
                 if cand_heatmap is None:
-                    cand_heatmap = generate_heatmap(img, pcls)
+                    cand_heatmap = generate_heatmap(img, own_pcls)
                 cand_overlay = overlay_heatmap(img, cand_heatmap, alpha=alpha)
-                cam_results[label] = (cand_heatmap, cand_overlay, is_real)
+                cam_results[label] = (cand_heatmap, cand_overlay, is_real, own_pcls)
             # Primary heatmap/overlay (used for the JSON export, activation
             # stats, etc.) is whichever one the rest of the app already
             # expects as "the" heatmap -- prefer MobileNetV2 for consistency
             # with what's been validated end-to-end.
             if active_cam_label and active_cam_label in cam_results:
-                heatmap, overlay, heatmap_is_real = cam_results[active_cam_label]
+                heatmap, overlay, heatmap_is_real, _ = cam_results[active_cam_label]
             else:
-                heatmap, overlay, heatmap_is_real = next(iter(cam_results.values()))
+                heatmap, overlay, heatmap_is_real, _ = next(iter(cam_results.values()))
         if heatmap is None:
             heatmap = generate_heatmap(img, pcls)
             overlay = overlay_heatmap(img, heatmap, alpha=alpha)
@@ -1706,9 +1717,11 @@ if clicked and img:
 
     if heatmap_is_real and len(cam_results) > 1:
         with col_out:
-            st.caption("Grad-CAM heatmaps are shown separately per backbone below. It's expected for them to "
-                       "highlight somewhat different regions even when the models agree on the diagnosis; that's a "
-                       "sign these are genuinely independent computations, not a duplicated image.")
+            st.caption("Each Grad-CAM heatmap below explains that specific model's own top prediction (labeled "
+                       "under each image), not necessarily the ensemble's final answer above. If a model's own "
+                       "vote differs from the ensemble result, its heatmap is shown for whichever class *that "
+                       "model* actually concluded, so it always reflects that model's real reasoning rather than "
+                       "being forced to justify an answer it didn't give.")
 
     mean_a = float(heatmap.mean())
     max_a = float(heatmap.max())
@@ -1796,14 +1809,15 @@ if clicked and img:
     with res_right:
         if len(cam_results) > 1:
             cam_cols = st.columns(len(cam_results), gap="small")
-            for (label, (r_heatmap, r_overlay, r_is_real)), cam_col in zip(cam_results.items(), cam_cols):
+            for (label, (r_heatmap, r_overlay, r_is_real, r_own_cls)), cam_col in zip(cam_results.items(), cam_cols):
                 with cam_col:
                     st.markdown('<div class="hm-img-frame">', unsafe_allow_html=True)
                     st.image(r_overlay, width='stretch')
                     st.markdown('</div>', unsafe_allow_html=True)
                     _tag = "" if r_is_real else " (synthetic)"
+                    _disagree_note = "" if r_own_cls == pcls else f" - this model's own top call, differs from ensemble's {pcls}"
                     st.markdown(f"""
-<div style="text-align:center;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.40)" if _dk else "rgba(10,22,40,.50)"};letter-spacing:.1em;">{label} Grad-CAM{_tag}</div>""", unsafe_allow_html=True)
+<div style="text-align:center;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.40)" if _dk else "rgba(10,22,40,.50)"};letter-spacing:.1em;">{label} Grad-CAM | explains: {r_own_cls}{_tag}{_disagree_note}</div>""", unsafe_allow_html=True)
         else:
             st.markdown('<div class="hm-img-frame">', unsafe_allow_html=True)
             st.image(overlay, width='stretch')
