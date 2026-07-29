@@ -822,7 +822,7 @@ body.ns-sidebar-collapsed [data-testid="stSidebar"]{{
 </style>
 """, unsafe_allow_html=True)
 
-components.html("""
+_SIDEBAR_TOGGLE_SCRIPT = """
 <script>
 (function(){
   var doc = window.parent.document;
@@ -851,7 +851,20 @@ components.html("""
   ensureButton();
 })();
 </script>
-""", height=0, width=0)
+"""
+
+# NOTE: st.components.v1.html was deprecated in Streamlit 1.56.0 in favor of
+# st.iframe (same-origin iframe, JS execution allowed, just like before) --
+# see https://docs.streamlit.io/develop/api-reference/text/st.iframe. Since
+# requirements.txt pins "streamlit>=1.32" with no upper bound, Streamlit
+# Cloud will keep installing newer Streamlit releases on every rebuild, and
+# components.v1.html is slated for eventual removal -- so we prefer st.iframe
+# when it's present and only fall back to the deprecated call on older
+# Streamlit installs, instead of hard-depending on either one.
+if hasattr(st, "iframe"):
+    st.iframe(_SIDEBAR_TOGGLE_SCRIPT, height=1, width=1)
+else:
+    components.html(_SIDEBAR_TOGGLE_SCRIPT, height=0, width=0)
 
 # ================================================================
 # MRI VALIDATION (Simple)
