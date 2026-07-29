@@ -5,3 +5,4 @@ matplotlib>=3.8
 Pillow>=10.0
 requests>=2.31
 tensorflow-cpu==2.16.1
+anthropic>=0.39
