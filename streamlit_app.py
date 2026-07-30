@@ -940,11 +940,11 @@ def mri_gate_ui(is_valid, confidence, reason, _dk):
     if is_valid:
         st.markdown(f"""
 <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.35);border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
-  <span style="font-size:18px;">✅</span>
-  <div>
-    <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:#22c55e;">Brain MRI verified</span>
-    <span style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.65)"};margin-left:10px;">Confidence: {pct}%</span>
-  </div>
+<span style="font-size:18px;">✅</span>
+<div>
+<span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:#22c55e;">Brain MRI verified</span>
+<span style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.65)"};margin-left:10px;">Confidence: {pct}%</span>
+</div>
 </div>""", unsafe_allow_html=True)
     else:
         st.error("❌ **A brain MRI image is required.** This doesn't look like a brain MRI scan, "
@@ -1152,12 +1152,35 @@ def overlay_heatmap(img, heatmap, alpha=0.55):
 # CLINICAL REPORT
 # ================================================================
 def _get_anthropic_api_key():
-    if not hasattr(st, "secrets"):
-        return None
-    try:
-        return st.secrets.get("ANTHROPIC_API_KEY", None)
-    except Exception:
-        return None
+    """Checks Streamlit's secrets manager first, then falls back to a plain
+    environment variable. The env var fallback matters because it's easy to
+    set ANTHROPIC_API_KEY somewhere that isn't Streamlit Cloud's Secrets
+    panel (a .env file, a different host's env var UI, a local `export`)
+    and get the same "not configured" message with no indication of why --
+    st.secrets alone won't see any of those."""
+    key = None
+    source = None
+
+    if hasattr(st, "secrets"):
+        try:
+            key = st.secrets.get("ANTHROPIC_API_KEY", None)
+            if key:
+                source = "st.secrets"
+        except Exception as e:
+            _log(f"[ai_report] st.secrets lookup raised: {e}")
+
+    if not key:
+        env_key = os.environ.get("ANTHROPIC_API_KEY")
+        if env_key:
+            key = env_key
+            source = "environment variable"
+
+    if key:
+        _log(f"[ai_report] ANTHROPIC_API_KEY found via {source} (len={len(key)})")
+    else:
+        _log("[ai_report] ANTHROPIC_API_KEY not found in st.secrets or environment")
+
+    return key
 
 REPORT_JSON_SCHEMA_FIELDS = [
     "clinical_interpretation", "location_morphology", "model_reasoning",
@@ -1482,12 +1505,12 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown(f"""
-    <div style="background:rgba(245,158,11,.10);border-left:3px solid #f59e0b;
+<div style="background:rgba(245,158,11,.10);border-left:3px solid #f59e0b;
       border-radius:0 8px 8px 0;padding:10px 12px;font-family:'DM Mono',monospace;
       font-size:9.5px;color:{"rgba(253,211,77,.92)" if _dk else "#7c4a03"};line-height:1.7;">
-      <strong style="color:{"#fbbf24" if _dk else "#92400e"};">Clinical Disclaimer</strong><br>
+<strong style="color:{"#fbbf24" if _dk else "#92400e"};">Clinical Disclaimer</strong><br>
       AI decision support only. Not a substitute for professional medical diagnosis.
-    </div>
+</div>
     """, unsafe_allow_html=True)
 
 # ================================================================
@@ -1498,23 +1521,23 @@ _next_theme = "light" if _dk else "dark"
 
 st.markdown(f"""
 <div class="topnav">
-  <div class="nav-brand">
-    <div class="nav-logo">🧠</div>
-    <div>
-      <div class="nav-name">NeuroScan <span>AI</span></div>
-      <div class="nav-tagline">Brain Tumor MRI Classification &amp; Explainability System</div>
-    </div>
-  </div>
-  <div class="nav-right">
-    <span class="chip">Smart Analysis</span>
-    <span class="chip">Grad-CAM XAI</span>
-    <span class="chip">Clinical Grade</span>
-    <span class="chip">4-Class CNN</span>
-    <form method="get" action="" style="margin:0;padding:0;display:inline-flex;">
-      <input type="hidden" name="theme" value="{_next_theme}">
-      <button type="submit" class="theme-toggle" title="Switch theme">{_tog_icon}</button>
-    </form>
-  </div>
+<div class="nav-brand">
+<div class="nav-logo">🧠</div>
+<div>
+<div class="nav-name">NeuroScan <span>AI</span></div>
+<div class="nav-tagline">Brain Tumor MRI Classification &amp; Explainability System</div>
+</div>
+</div>
+<div class="nav-right">
+<span class="chip">Smart Analysis</span>
+<span class="chip">Grad-CAM XAI</span>
+<span class="chip">Clinical Grade</span>
+<span class="chip">4-Class CNN</span>
+<form method="get" action="" style="margin:0;padding:0;display:inline-flex;">
+<input type="hidden" name="theme" value="{_next_theme}">
+<button type="submit" class="theme-toggle" title="Switch theme">{_tog_icon}</button>
+</form>
+</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1523,37 +1546,37 @@ st.markdown(f"""
 # ================================================================
 st.markdown("""
 <div class="hero">
-  <div class="hero-inner">
-    <div class="hero-top">
-      <div>
-        <h1 class="hero-h1">NeuroScan Brain Tumor<br>
-          <span class="grad">MRI Classification</span>
-        </h1>
-        <p class="hero-desc">
+<div class="hero-inner">
+<div class="hero-top">
+<div>
+<h1 class="hero-h1">NeuroScan Brain Tumor<br>
+<span class="grad">MRI Classification</span>
+</h1>
+<p class="hero-desc">
           Upload any axial brain MRI and receive instant classification across 4 tumor types,
           complete with Grad-CAM heatmaps and AI-generated clinical reports.
-        </p>
-      </div>
-      <div class="hero-stats">
-        <div class="hs"><div class="hs-n">95.31%</div><div class="hs-l">Ensemble Accuracy</div></div>
-        <div class="hs"><div class="hs-n">4</div><div class="hs-l">Tumor Classes</div></div>
-        <div class="hs"><div class="hs-n">~7 K</div><div class="hs-l">Training Images</div></div>
-        <div class="hs"><div class="hs-n">v3.0</div><div class="hs-l">Model Version</div></div>
-      </div>
-    </div>
-    <div class="hero-div"></div>
-    <div class="pipeline">
-      <div class="pip-step"><div class="pip-num">1</div><div class="pip-txt"><strong>Upload MRI</strong>Any axial T1/T2 scan</div></div>
-      <div class="pip-arr">›</div>
-      <div class="pip-step"><div class="pip-num">2</div><div class="pip-txt"><strong>AI Analysis</strong>Intelligent classification</div></div>
-      <div class="pip-arr">›</div>
-      <div class="pip-step"><div class="pip-num">3</div><div class="pip-txt"><strong>Grad-CAM</strong>Tumor region heatmap</div></div>
-      <div class="pip-arr">›</div>
-      <div class="pip-step"><div class="pip-num">4</div><div class="pip-txt"><strong>AI Report</strong>Clinical analysis</div></div>
-      <div class="pip-arr">›</div>
-      <div class="pip-step"><div class="pip-num">5</div><div class="pip-txt"><strong>Export</strong>JSON + PNG figure</div></div>
-    </div>
-  </div>
+</p>
+</div>
+<div class="hero-stats">
+<div class="hs"><div class="hs-n">95.31%</div><div class="hs-l">Ensemble Accuracy</div></div>
+<div class="hs"><div class="hs-n">4</div><div class="hs-l">Tumor Classes</div></div>
+<div class="hs"><div class="hs-n">~7 K</div><div class="hs-l">Training Images</div></div>
+<div class="hs"><div class="hs-n">v3.0</div><div class="hs-l">Model Version</div></div>
+</div>
+</div>
+<div class="hero-div"></div>
+<div class="pipeline">
+<div class="pip-step"><div class="pip-num">1</div><div class="pip-txt"><strong>Upload MRI</strong>Any axial T1/T2 scan</div></div>
+<div class="pip-arr">›</div>
+<div class="pip-step"><div class="pip-num">2</div><div class="pip-txt"><strong>AI Analysis</strong>Intelligent classification</div></div>
+<div class="pip-arr">›</div>
+<div class="pip-step"><div class="pip-num">3</div><div class="pip-txt"><strong>Grad-CAM</strong>Tumor region heatmap</div></div>
+<div class="pip-arr">›</div>
+<div class="pip-step"><div class="pip-num">4</div><div class="pip-txt"><strong>AI Report</strong>Clinical analysis</div></div>
+<div class="pip-arr">›</div>
+<div class="pip-step"><div class="pip-num">5</div><div class="pip-txt"><strong>Export</strong>JSON + PNG figure</div></div>
+</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1580,15 +1603,15 @@ with col_in:
     
     st.markdown(f'''<div style="font-family:DM Mono,monospace;font-size:10px;color:{"rgba(255,255,255,.68)" if _dk else "rgba(10,22,40,.72)"};text-align:center;padding:8px 0 14px;text-transform:uppercase;letter-spacing:.11em;background:rgba(56,189,248,.06);border-radius:8px;margin-top:6px;">
       JPG / PNG / BMP &nbsp;·&nbsp; Max 10 MB &nbsp;·&nbsp; T1 or T2 axial preferred
-    </div>''', unsafe_allow_html=True)
+</div>''', unsafe_allow_html=True)
 
     st.markdown('''<div style="margin:18px 0 8px;">
-      <div style="font-family:DM Mono,monospace;font-size:10.5px;font-weight:600;color:rgba(56,189,248,.80);text-transform:uppercase;letter-spacing:.13em;display:flex;align-items:center;gap:10px;">
-        <span style="flex:1;height:1px;background:rgba(56,189,248,.40);display:block"></span>
+<div style="font-family:DM Mono,monospace;font-size:10.5px;font-weight:600;color:rgba(56,189,248,.80);text-transform:uppercase;letter-spacing:.13em;display:flex;align-items:center;gap:10px;">
+<span style="flex:1;height:1px;background:rgba(56,189,248,.40);display:block"></span>
         Or choose a sample
-        <span style="flex:1;height:1px;background:rgba(56,189,248,.40);display:block"></span>
-      </div>
-    </div>''', unsafe_allow_html=True)
+<span style="flex:1;height:1px;background:rgba(56,189,248,.40);display:block"></span>
+</div>
+</div>''', unsafe_allow_html=True)
 
     sample_options = ["Select a sample image"] + list(SAMPLE_FILES.keys())
     sel_lbl = st.selectbox("Sample", sample_options, index=0, label_visibility="collapsed")
@@ -1626,16 +1649,16 @@ with col_in:
         cap = "UPLOADED SCAN" if src == "upload" else f"SAMPLE: {sel_lbl.upper()}"
         st.markdown(f'''<div style="font-family:DM Mono,monospace;font-size:10px;font-weight:600;color:#38bdf8;text-align:center;padding:8px 0 4px;letter-spacing:.09em;text-transform:uppercase;">
           📸 {cap}
-        </div>''', unsafe_allow_html=True)
+</div>''', unsafe_allow_html=True)
         st.image(img, width='stretch', clamp=True)
     else:
         st.markdown(f'''<div style="border:2px dashed rgba(56,189,248,.38);border-radius:14px;padding:2.5rem 1.5rem;text-align:center;background:rgba(56,189,248,.05);margin:8px 0;">
-          <div style="font-size:40px;margin-bottom:12px;">🩻</div>
-          <div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600;color:{text_color};margin-bottom:6px;">No image selected</div>
-          <div style="font-family:DM Mono,monospace;font-size:10px;color:{"rgba(255,255,255,.58)" if _dk else "rgba(10,22,40,.62)"};letter-spacing:.07em;line-height:1.9;">
+<div style="font-size:40px;margin-bottom:12px;">🩻</div>
+<div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600;color:{text_color};margin-bottom:6px;">No image selected</div>
+<div style="font-family:DM Mono,monospace;font-size:10px;color:{"rgba(255,255,255,.58)" if _dk else "rgba(10,22,40,.62)"};letter-spacing:.07em;line-height:1.9;">
             Upload a brain MRI above<br>or pick a sample below
-          </div>
-        </div>''', unsafe_allow_html=True)
+</div>
+</div>''', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
@@ -1653,20 +1676,20 @@ with col_out:
     
     if not clicked:
         st.markdown('''<div class="glass" style="min-height:440px;display:flex;align-items:center;justify-content:center;text-align:center;padding:3rem;">
-          <div>
-            <div style="font-size:54px;margin-bottom:18px;">🔬</div>
-            <div style="font-family:Space Grotesk,sans-serif;font-size:19px;font-weight:600;color:#e2e8f0;line-height:1.4;margin-bottom:8px;">Ready for Analysis</div>
-            <div style="font-family:Inter,sans-serif;font-size:13.5px;color:rgba(255,255,255,.65);line-height:1.85;margin-bottom:22px;">
+<div>
+<div style="font-size:54px;margin-bottom:18px;">🔬</div>
+<div style="font-family:Space Grotesk,sans-serif;font-size:19px;font-weight:600;color:#e2e8f0;line-height:1.4;margin-bottom:8px;">Ready for Analysis</div>
+<div style="font-family:Inter,sans-serif;font-size:13.5px;color:rgba(255,255,255,.65);line-height:1.85;margin-bottom:22px;">
               Upload a brain MRI or select a sample,<br>
               then click <strong>Analyse</strong> to run the full pipeline.
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
-              <span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">AI PREDICTION</span>
-              <span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">GRAD-CAM HEATMAP</span>
-              <span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">CLINICAL REPORT</span>
-            </div>
-          </div>
-        </div>''', unsafe_allow_html=True)
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
+<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">AI PREDICTION</span>
+<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">GRAD-CAM HEATMAP</span>
+<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">CLINICAL REPORT</span>
+</div>
+</div>
+</div>''', unsafe_allow_html=True)
 
 # ================================================================
 # ANALYSIS
@@ -1677,11 +1700,11 @@ if clicked and img:
     st.markdown("""
 <div id="ns-result-anchor"></div>
 <div id="ns-toast">
-  <div id="ns-toast-icon">✅</div>
-  <div id="ns-toast-body">
-    <div id="ns-toast-title">Analysis Complete</div>
-    <div id="ns-toast-sub">Results available in the output panel →</div>
-  </div>
+<div id="ns-toast-icon">✅</div>
+<div id="ns-toast-body">
+<div id="ns-toast-title">Analysis Complete</div>
+<div id="ns-toast-sub">Results available in the output panel →</div>
+</div>
 </div>
 <script>
 (function() {
@@ -1713,11 +1736,11 @@ if clicked and img:
     with col_out:
         st.markdown(f"""
 <div style="background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.30);border-left:4px solid #38bdf8;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
-  <span style="font-size:20px">🔬</span>
-  <div>
-    <div style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{text_color};">Analysis in progress</div>
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.50)" if _dk else "rgba(10,22,40,.62)"};margin-top:2px;letter-spacing:.05em;">VALIDATION → AI ANALYSIS → HEATMAP → REPORT</div>
-  </div>
+<span style="font-size:20px">🔬</span>
+<div>
+<div style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;color:{text_color};">Analysis in progress</div>
+<div style="font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.50)" if _dk else "rgba(10,22,40,.62)"};margin-top:2px;letter-spacing:.05em;">VALIDATION → AI ANALYSIS → HEATMAP → REPORT</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1926,11 +1949,11 @@ if clicked and img:
         pct_col = f"color:{pct_top_col};" if is_top else f"color:{pct_muted_col};"
         return f"""
 <div style="margin-bottom:20px;">
-  <div style="font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:7px;{bold}">{name}</div>
-  <div style="{track}border-radius:6px;height:8px;overflow:hidden;margin-bottom:5px;">
-    <div style="height:100%;border-radius:6px;width:{w_pct}%;{fill}transition:width .8s ease;"></div>
-  </div>
-  <div style="font-family:'DM Mono',monospace;font-size:11px;{pct_col}">{pct:.1f}%</div>
+<div style="font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:7px;{bold}">{name}</div>
+<div style="{track}border-radius:6px;height:8px;overflow:hidden;margin-bottom:5px;">
+<div style="height:100%;border-radius:6px;width:{w_pct}%;{fill}transition:width .8s ease;"></div>
+</div>
+<div style="font-family:'DM Mono',monospace;font-size:11px;{pct_col}">{pct:.1f}%</div>
 </div>"""
 
     bars_html = ""
@@ -1940,37 +1963,37 @@ if clicked and img:
     with col_out:
         st.markdown(f"""
 <div class="pred-card">
-  <div class="pred-eyebrow">AI Analysis | 4-Class Classification</div>
-  <div class="pred-name">{pcls}</div>
-  <div class="conf-row">
-    <span class="conf-l">Confidence</span>
-    <span class="conf-v">{conf:.1f}%</span>
-  </div>
-  <div class="conf-track">
-    <div class="conf-fill" style="width:{conf}%"></div>
-  </div>
-  <div class="risk-chip {rc}">
-    <span class="rdot {dc}"></span>{rl} RISK
-  </div>
-  <div style="margin-top:12px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.65)"};">
+<div class="pred-eyebrow">AI Analysis | 4-Class Classification</div>
+<div class="pred-name">{pcls}</div>
+<div class="conf-row">
+<span class="conf-l">Confidence</span>
+<span class="conf-v">{conf:.1f}%</span>
+</div>
+<div class="conf-track">
+<div class="conf-fill" style="width:{conf}%"></div>
+</div>
+<div class="risk-chip {rc}">
+<span class="rdot {dc}"></span>{rl} RISK
+</div>
+<div style="margin-top:12px;font-family:'DM Mono',monospace;font-size:10px;color:{"rgba(255,255,255,.55)" if _dk else "rgba(10,22,40,.65)"};">
     {explanation}
-  </div>
+</div>
 </div>""", unsafe_allow_html=True)
 
     # Heatmap Section
     st.markdown("---")
     st.markdown(f"""
 <div class="hm-section">
-  <div class="hm-header">
-    <div>
-      <div class="hm-title">Grad-CAM Heatmap | {pcls}</div>
-      <div class="hm-sub">AI Explainability - Regions influencing the prediction</div>
-    </div>
-    <div class="hm-legend">
-      <div class="hm-leg"><span class="hm-swatch" style="background:linear-gradient(90deg,#00007f,#007fff,#00ffff)"></span>Low</div>
-      <div class="hm-leg"><span class="hm-swatch" style="background:linear-gradient(90deg,#ffff00,#ff7f00,#ff0000)"></span>High</div>
-    </div>
-  </div>
+<div class="hm-header">
+<div>
+<div class="hm-title">Grad-CAM Heatmap | {pcls}</div>
+<div class="hm-sub">AI Explainability - Regions influencing the prediction</div>
+</div>
+<div class="hm-legend">
+<div class="hm-leg"><span class="hm-swatch" style="background:linear-gradient(90deg,#00007f,#007fff,#00ffff)"></span>Low</div>
+<div class="hm-leg"><span class="hm-swatch" style="background:linear-gradient(90deg,#ffff00,#ff7f00,#ff0000)"></span>High</div>
+</div>
+</div>
 """, unsafe_allow_html=True)
 
     res_left, res_right = st.columns([1, 1], gap="large")
@@ -1978,7 +2001,7 @@ if clicked and img:
     with res_left:
         st.markdown(f"""
 <div style="padding:1.2rem 0.4rem;">
-  <div style="font-family:'DM Mono',monospace;font-size:9px;color:rgba(56,189,248,.80);text-transform:uppercase;letter-spacing:.16em;margin-bottom:18px;font-weight:600;">Class Distribution</div>
+<div style="font-family:'DM Mono',monospace;font-size:9px;color:rgba(56,189,248,.80);text-transform:uppercase;letter-spacing:.16em;margin-bottom:18px;font-weight:600;">Class Distribution</div>
   {bars_html}
 </div>""", unsafe_allow_html=True)
 
@@ -2033,27 +2056,27 @@ if clicked and img:
         st.markdown('<div class="hm-col-lbl">Stats</div>', unsafe_allow_html=True)
         st.markdown(f"""
 <div style="display:flex;flex-direction:column;gap:8px;padding-top:2px;">
-  <div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
-    <div class="hm-sv" style="font-size:16px">{mean_a:.3f}</div><div class="hm-sl">Mean</div>
-  </div>
-  <div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
-    <div class="hm-sv" style="font-size:16px">{p90_a:.3f}</div><div class="hm-sl">P90</div>
-  </div>
-  <div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
-    <div class="hm-sv" style="font-size:16px">{focus_p:.1f}%</div><div class="hm-sl">High Area</div>
-  </div>
-  <div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
-    <div class="hm-sv" style="font-size:16px">{max_a:.3f}</div><div class="hm-sl">Peak</div>
-  </div>
+<div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
+<div class="hm-sv" style="font-size:16px">{mean_a:.3f}</div><div class="hm-sl">Mean</div>
+</div>
+<div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
+<div class="hm-sv" style="font-size:16px">{p90_a:.3f}</div><div class="hm-sl">P90</div>
+</div>
+<div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
+<div class="hm-sv" style="font-size:16px">{focus_p:.1f}%</div><div class="hm-sl">High Area</div>
+</div>
+<div class="hm-stat" style="border-radius:8px;border:1px solid rgba(56,189,248,.1)">
+<div class="hm-sv" style="font-size:16px">{max_a:.3f}</div><div class="hm-sl">Peak</div>
+</div>
 </div>""", unsafe_allow_html=True)
 
     st.markdown("""
-  <div class="cscale" style="margin:14px 1.5rem;">
-    <div class="cscale-bar"></div>
-    <div class="cscale-lbls">
-      <span>Low</span><span>Cyan</span><span>Green/Yellow</span><span>Orange</span><span>High (Red)</span>
-    </div>
-  </div>
+<div class="cscale" style="margin:14px 1.5rem;">
+<div class="cscale-bar"></div>
+<div class="cscale-lbls">
+<span>Low</span><span>Cyan</span><span>Green/Yellow</span><span>Orange</span><span>High (Red)</span>
+</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -2099,7 +2122,7 @@ if clicked and img:
 
     st.markdown(f"""
 <div class="disc">
-  <strong>AI-Assisted Decision Support Only</strong> -
+<strong>AI-Assisted Decision Support Only</strong> -
   {report.get("disclaimer", "")}
   All findings require review by a licensed radiologist or neurosurgeon.
 </div>""", unsafe_allow_html=True)
@@ -2172,30 +2195,30 @@ if clicked and img:
     _cards_html = ""
     for it in _perf_items:
         _cards_html += f"""
-    <div style="background:{_card_bg};border:1px solid {it['color']}33;border-top:3px solid {it['color']};
+<div style="background:{_card_bg};border:1px solid {it['color']}33;border-top:3px solid {it['color']};
                 border-radius:12px;padding:16px 14px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.06);">
-      <div style="font-size:20px;margin-bottom:4px;">{it['icon']}</div>
-      <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:{it['color']};">{it['val']:g}%</div>
-      <div style="font-family:'DM Mono',monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:{_sub_text};margin:4px 0 8px;">{it['label']}</div>
-      <div style="height:5px;border-radius:4px;background:{_track_bg};overflow:hidden;">
-        <div style="height:100%;width:{it['val']}%;background:{it['color']};border-radius:4px;"></div>
-      </div>
-    </div>"""
+<div style="font-size:20px;margin-bottom:4px;">{it['icon']}</div>
+<div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:{it['color']};">{it['val']:g}%</div>
+<div style="font-family:'DM Mono',monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:{_sub_text};margin:4px 0 8px;">{it['label']}</div>
+<div style="height:5px;border-radius:4px;background:{_track_bg};overflow:hidden;">
+<div style="height:100%;width:{it['val']}%;background:{it['color']};border-radius:4px;"></div>
+</div>
+</div>"""
 
     st.markdown(f"""
 <div class="glass" style="background:linear-gradient(135deg,{"rgba(56,189,248,.05)" if _dk else "rgba(56,189,248,.04)"},transparent);border-radius:16px;padding:20px;">
-  <div style="font-size:11.5px;color:{_sub_text};line-height:1.65;margin-bottom:18px;padding:10px 14px;
+<div style="font-size:11.5px;color:{_sub_text};line-height:1.65;margin-bottom:18px;padding:10px 14px;
               background:{"rgba(255,255,255,.03)" if _dk else "rgba(10,22,40,.03)"};border-radius:8px;border-left:3px solid #38bdf8;">
     ℹ️ Measured once on a held-out validation set during training (see <code>confusion_matrix_ensemble.png</code> in
     the repo), not a live guarantee for any single scan you upload. Individual results above can and do vary from
     these averages, especially at lower confidence.
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin-bottom:16px;">
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin-bottom:16px;">
     {_cards_html}
-  </div>
-  <div style="font-size:11.5px;color:{_sub_text};line-height:1.7;text-align:center;">
+</div>
+<div style="font-size:11.5px;color:{_sub_text};line-height:1.7;text-align:center;">
     Predictions come from real trained ResNet50V2 / MobileNetV2 models with genuine Grad-CAM explainability, not a rule-based heuristic.
-  </div>
+</div>
 </div>
 """, unsafe_allow_html=True)
 
