@@ -1157,7 +1157,15 @@ def _get_anthropic_api_key():
     set ANTHROPIC_API_KEY somewhere that isn't Streamlit Cloud's Secrets
     panel (a .env file, a different host's env var UI, a local `export`)
     and get the same "not configured" message with no indication of why --
-    st.secrets alone won't see any of those."""
+    st.secrets alone won't see any of those.
+
+    Also sanitizes the value: strips stray whitespace/newlines (easy to
+    pick up when pasting into a textarea) and normalizes lookalike Unicode
+    dash characters (en dash "\u2013", em dash "\u2014", minus sign "\u2212")
+    back to a plain ASCII hyphen, since some editors/apps silently
+    autocorrect "-" into one of these when text is typed or pasted through
+    them -- the key then LOOKS identical but fails auth with no visible clue.
+    """
     key = None
     source = None
 
@@ -1176,7 +1184,17 @@ def _get_anthropic_api_key():
             source = "environment variable"
 
     if key:
-        _log(f"[ai_report] ANTHROPIC_API_KEY found via {source} (len={len(key)})")
+        raw_len = len(key)
+        cleaned = key.strip()
+        for dash_lookalike in ("\u2013", "\u2014", "\u2212"):
+            cleaned = cleaned.replace(dash_lookalike, "-")
+        if cleaned != key:
+            _log(f"[ai_report] ANTHROPIC_API_KEY needed sanitizing "
+                 f"(raw_len={raw_len} -> clean_len={len(cleaned)}); "
+                 f"stray whitespace or a lookalike dash character was removed")
+        key = cleaned
+        _log(f"[ai_report] ANTHROPIC_API_KEY found via {source} "
+             f"(len={len(key)}, prefix={key[:11]!r}, suffix={key[-4:]!r})")
     else:
         _log("[ai_report] ANTHROPIC_API_KEY not found in st.secrets or environment")
 
