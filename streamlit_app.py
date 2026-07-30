@@ -1157,15 +1157,7 @@ def _get_anthropic_api_key():
     set ANTHROPIC_API_KEY somewhere that isn't Streamlit Cloud's Secrets
     panel (a .env file, a different host's env var UI, a local `export`)
     and get the same "not configured" message with no indication of why --
-    st.secrets alone won't see any of those.
-
-    Also sanitizes the value: strips stray whitespace/newlines (easy to
-    pick up when pasting into a textarea) and normalizes lookalike Unicode
-    dash characters (en dash "\u2013", em dash "\u2014", minus sign "\u2212")
-    back to a plain ASCII hyphen, since some editors/apps silently
-    autocorrect "-" into one of these when text is typed or pasted through
-    them -- the key then LOOKS identical but fails auth with no visible clue.
-    """
+    st.secrets alone won't see any of those."""
     key = None
     source = None
 
@@ -1184,17 +1176,35 @@ def _get_anthropic_api_key():
             source = "environment variable"
 
     if key:
-        raw_len = len(key)
+        # Defensive cleanup: the most common cause of a 401 "API key is
+        # invalid" error when the key LOOKS present is invisible whitespace
+        # (a trailing newline from pasting into the Streamlit Cloud secrets
+        # box) or an accidental extra pair of quotes in secrets.toml, e.g.
+        #   ANTHROPIC_API_KEY = "'sk-ant-...'"
+        # which makes the literal quote characters part of the string.
+        # Strip both before the key is ever sent to the API.
         cleaned = key.strip()
-        for dash_lookalike in ("\u2013", "\u2014", "\u2212"):
-            cleaned = cleaned.replace(dash_lookalike, "-")
+        if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ("'", '"'):
+            cleaned = cleaned[1:-1].strip()
+
         if cleaned != key:
-            _log(f"[ai_report] ANTHROPIC_API_KEY needed sanitizing "
-                 f"(raw_len={raw_len} -> clean_len={len(cleaned)}); "
-                 f"stray whitespace or a lookalike dash character was removed")
+            _log(
+                f"[ai_report] ANTHROPIC_API_KEY from {source} had surrounding "
+                f"whitespace/quotes stripped (raw len={len(key)} -> clean len={len(cleaned)})"
+            )
         key = cleaned
-        _log(f"[ai_report] ANTHROPIC_API_KEY found via {source} "
-             f"(len={len(key)}, prefix={key[:11]!r}, suffix={key[-4:]!r})")
+
+        if not key.startswith("sk-ant-"):
+            _log(
+                f"[ai_report] WARNING: ANTHROPIC_API_KEY from {source} does not start "
+                f"with 'sk-ant-' (starts with {key[:7]!r}) -- this doesn't look like a "
+                "valid Anthropic API key format, double check what was pasted into secrets."
+            )
+
+        _log(
+            f"[ai_report] ANTHROPIC_API_KEY found via {source} "
+            f"(len={len(key)}, prefix={key[:11]!r}, suffix={key[-4:]!r})"
+        )
     else:
         _log("[ai_report] ANTHROPIC_API_KEY not found in st.secrets or environment")
 
@@ -1284,6 +1294,24 @@ Guidance per field:
         if missing:
             return None, False, f"Claude response missing fields: {missing}"
         return data, True, None
+    except anthropic.AuthenticationError as e:
+        # A 401 here means the request reached Anthropic's servers and the
+        # key was rejected outright -- this is NOT a bug in this app's code
+        # path (the key was found and sent correctly). It means the key
+        # string itself is wrong: revoked/deleted, from the wrong
+        # organization, or mistyped/truncated when it was pasted into
+        # Streamlit secrets. Re-generate a fresh key at
+        # https://console.anthropic.com/settings/keys and replace the value
+        # in Settings -> Secrets, with nothing extra (no quotes, no newline).
+        _log(f"[ai_report] AUTHENTICATION ERROR calling Anthropic API: {e}")
+        return None, False, (
+            "Anthropic API rejected this key (401 authentication_error). The key was found "
+            "in secrets and looked correctly formatted, but the server says it's invalid -- "
+            "this means the key itself is wrong (revoked, from a different workspace, or "
+            "mistyped/truncated when pasted). Generate a new key at "
+            "console.anthropic.com/settings/keys and paste it into Streamlit "
+            "secrets with no surrounding quotes or extra whitespace."
+        )
     except Exception as e:
         _log(f"[ai_report] ERROR calling Anthropic API: {e}")
         return None, False, str(e)
