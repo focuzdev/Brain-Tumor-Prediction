@@ -1309,13 +1309,14 @@ def generate_ai_report(pred_class, conf, explanation, per_model, mean_a, max_a, 
     for an existing classifier's output, not an unregulated standalone
     diagnostic AI.
 
-    Returns (report_dict, used_real_ai: bool, error_or_None).
+    Returns (report_dict, used_real_ai: bool, error_or_None, error_kind_or_None).
+    error_kind is one of: "auth", "billing", "rate_limit", "overloaded", "other", None.
     """
     api_key = _get_anthropic_api_key()
     if not ANTHROPIC_AVAILABLE:
-        return None, False, f"anthropic package not installed: {ANTHROPIC_IMPORT_ERROR}"
+        return None, False, f"anthropic package not installed: {ANTHROPIC_IMPORT_ERROR}", "other"
     if not api_key:
-        return None, False, "No ANTHROPIC_API_KEY configured in Streamlit secrets."
+        return None, False, "No ANTHROPIC_API_KEY configured in Streamlit secrets.", "auth"
 
     votes_desc = "; ".join(
         f"{label}: {CLASS_NAMES[int(np.argmax(p))]} ({p[int(np.argmax(p))]*100:.1f}%)"
@@ -1389,7 +1390,7 @@ Guidance per field:
                 "Claude's response was cut off before it finished (hit the max_tokens "
                 "limit) -- the report couldn't be parsed as a result. Try again; if it "
                 "keeps happening the per-report token limit in the code needs raising."
-            )
+            ), "other"
 
         text = "".join(block.text for block in resp.content if hasattr(block, "text")).strip()
         text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
@@ -1397,7 +1398,7 @@ Guidance per field:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             _log(f"[ai_report] JSON parse failed ({e}); raw text was: {text[:2000]!r}")
-            return None, False, f"Could not parse Claude's response as JSON: {e}"
+            return None, False, f"Could not parse Claude's response as JSON: {e}", "other"
 
         missing = [f for f in REPORT_JSON_SCHEMA_FIELDS if f not in data]
         if missing:
@@ -1411,7 +1412,7 @@ Guidance per field:
             _fallback = template_report(pred_class, conf, explanation)
             for f in missing:
                 data[f] = _fallback.get(f, "")
-        return data, True, None
+        return data, True, None, None
     except anthropic.AuthenticationError as e:
         # A 401 here means the request reached Anthropic's servers and the
         # key was rejected outright -- this is NOT a bug in this app's code
@@ -1429,10 +1430,25 @@ Guidance per field:
             "mistyped/truncated when pasted). Generate a new key at "
             "console.anthropic.com/settings/keys and paste it into Streamlit "
             "secrets with no surrounding quotes or extra whitespace."
-        )
+        ), "auth"
     except Exception as e:
         _log(f"[ai_report] ERROR calling Anthropic API: {e}")
-        return None, False, str(e)
+        _msg = str(e)
+        _low = _msg.lower()
+        # Classify the failure so the UI can show something a non-technical
+        # reader understands, instead of a raw exception string that reads
+        # like the application itself is broken. A "credit balance too low"
+        # 400 is a billing state, not a bug -- it should look and read like
+        # a billing notice, not an error stack trace.
+        if "credit balance" in _low or "credit_balance" in _low or "insufficient" in _low and "credit" in _low:
+            error_kind = "billing"
+        elif "rate limit" in _low or "rate_limit" in _low:
+            error_kind = "rate_limit"
+        elif "overloaded" in _low:
+            error_kind = "overloaded"
+        else:
+            error_kind = "other"
+        return None, False, _msg, error_kind
 
 def template_report(pred_class, conf, explanation):
     reports = {
@@ -2105,7 +2121,7 @@ if clicked and img:
     # Step 4: Report
     _set_loader("Step 4 / 4", "Drafting clinical report")
     _cam_labels_for_report = [cfg["label"] for cfg in _active_model_configs() if cfg["key"] in loaded_models] if used_real_model else []
-    report, used_real_ai_report, ai_report_error = generate_ai_report(
+    report, used_real_ai_report, ai_report_error, ai_report_error_kind = generate_ai_report(
         pcls, conf, explanation, per_model, mean_a, max_a, p90_a, focus_p, _cam_labels_for_report,
         image_quality_label=_img_quality_label, image_quality_score=_img_quality_score,
     )
@@ -2314,17 +2330,36 @@ if clicked and img:
             unsafe_allow_html=True,
         )
     else:
-        _err_lower = (ai_report_error or "").lower()
-        if "api_key" in _err_lower or "authentication" in _err_lower or "not installed" in _err_lower or "no anthropic_api_key" in _err_lower:
-            _fix_hint = "Configure `ANTHROPIC_API_KEY` in Streamlit secrets to enable real per-image report generation."
+        if ai_report_error_kind == "billing":
+            # This is an account/billing state, not a bug -- it should read
+            # like a billing notice, not like something broke in the code.
+            st.markdown(
+                '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 16px;'
+                'border-radius:10px;background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.40);'
+                'font-family:Inter,sans-serif;font-size:13px;line-height:1.6;margin-bottom:12px;">'
+                '<span style="font-size:17px;">💳</span>'
+                '<div><strong>AI-generated report unavailable -- Anthropic account is out of API credits.</strong><br>'
+                'This is a billing matter, not an application error: the connected Anthropic account has run out '
+                'of usage credits. An administrator needs to add credits at '
+                '<a href="https://console.anthropic.com" target="_blank" style="color:#0369a1;">console.anthropic.com</a> '
+                '&rarr; Plans &amp; Billing. Showing a static template report below in the meantime -- prediction '
+                'and heatmap results above are unaffected.</div></div>',
+                unsafe_allow_html=True,
+            )
+        elif ai_report_error_kind == "auth":
+            st.warning(f"🔑 AI-generated report unavailable -- the configured Anthropic API key was rejected. "
+                       f"An administrator needs to check `ANTHROPIC_API_KEY` in Streamlit secrets. "
+                       f"({ai_report_error})")
+        elif ai_report_error_kind == "rate_limit":
+            st.warning("⏳ AI-generated report unavailable right now -- Anthropic's API is temporarily rate-limiting "
+                       "requests. This usually resolves within a minute or two; try running the analysis again.")
+        elif ai_report_error_kind == "overloaded":
+            st.warning("⏳ AI-generated report unavailable right now -- Anthropic's servers are temporarily "
+                       "overloaded. This is on Anthropic's side, not this app; try again shortly.")
         else:
-            # The key and credits are fine here -- this is a one-off issue
-            # with that specific API response (e.g. it got cut off, or came
-            # back malformed) rather than a configuration problem, so don't
-            # send the user chasing their API key for something unrelated.
-            _fix_hint = "This looks like a one-off issue with that specific AI response, not your API key or credits -- try running the analysis again."
-        st.warning(f"⚠️ Using a static per-class template for this report, not a dynamically generated one "
-                   f"({ai_report_error}). {_fix_hint}")
+            st.warning(f"⚠️ Using a static per-class template for this report, not a dynamically generated one. "
+                       f"This looks like a one-off issue with that specific AI response, not your API key or "
+                       f"credits -- try running the analysis again. ({ai_report_error})")
 
     t1, t2, t3, t4 = st.tabs(["Findings", "Reasoning", "Patient Summary", "Reliability"])
 
