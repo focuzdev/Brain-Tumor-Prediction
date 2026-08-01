@@ -1802,8 +1802,9 @@ st.markdown("""
 <span class="grad">MRI Classification</span>
 </h1>
 <p class="hero-desc">
-          Upload any axial brain MRI and receive instant classification across 4 tumor types,
-          complete with Grad-CAM heatmaps and AI-generated clinical reports.
+          Upload any axial brain MRI and receive instant classification across 4 categories,
+          Glioma, Meningioma, Pituitary Tumor, and No Tumor, complete with Grad-CAM heatmaps
+          and AI-generated clinical reports.
 </p>
 </div>
 <div class="hero-stats">
