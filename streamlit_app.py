@@ -1356,6 +1356,7 @@ Guidance per field:
 - risk_level: one of LOW, MODERATE, HIGH, based on predicted class and confidence.
 - risk_justification: brief, general clinical context for that class, not image-specific claims.
 - patient_explanation: plain language, 1-2 sentences, reassuring but honest that this is AI-assisted, not a diagnosis.
+- next_steps: 2-4 concrete recommended actions appropriate to the predicted class, confidence, and risk level (e.g. specialist referral, contrast-enhanced follow-up imaging, clinical correlation, routine monitoring) -- format as "1. ...\\n2. ...\\n3. ...". This field is REQUIRED, do not omit it.
 - image_quality: must be exactly one of GOOD, ADEQUATE, or POOR -- simply echo the image quality value given above verbatim, do not write a sentence and do not invent a different category, even if you'd personally judge it differently.
 - uncertainty_factors: name what would reduce confidence in THIS specific result (e.g. low confidence, model disagreement, low activation focus) using the actual numbers given.
 - reliability_score: an integer 0-100 you compute reasonably from confidence + model agreement + activation focus, not a fixed per-class constant.
@@ -1400,7 +1401,16 @@ Guidance per field:
 
         missing = [f for f in REPORT_JSON_SCHEMA_FIELDS if f not in data]
         if missing:
-            return None, False, f"Claude response missing fields: {missing}"
+            # Don't throw away an otherwise-real, mostly-complete AI report
+            # over one dropped field -- that discards genuine per-image
+            # analysis (confidence-aware reasoning, actual reliability
+            # score, etc.) just because, say, next_steps got skipped.
+            # Backfill only the missing key(s) from the static per-class
+            # template and still surface the rest as real AI content.
+            _log(f"[ai_report] Claude response missing fields (backfilling from template): {missing}")
+            _fallback = template_report(pred_class, conf, explanation)
+            for f in missing:
+                data[f] = _fallback.get(f, "")
         return data, True, None
     except anthropic.AuthenticationError as e:
         # A 401 here means the request reached Anthropic's servers and the
@@ -2304,9 +2314,17 @@ if clicked and img:
             unsafe_allow_html=True,
         )
     else:
+        _err_lower = (ai_report_error or "").lower()
+        if "api_key" in _err_lower or "authentication" in _err_lower or "not installed" in _err_lower or "no anthropic_api_key" in _err_lower:
+            _fix_hint = "Configure `ANTHROPIC_API_KEY` in Streamlit secrets to enable real per-image report generation."
+        else:
+            # The key and credits are fine here -- this is a one-off issue
+            # with that specific API response (e.g. it got cut off, or came
+            # back malformed) rather than a configuration problem, so don't
+            # send the user chasing their API key for something unrelated.
+            _fix_hint = "This looks like a one-off issue with that specific AI response, not your API key or credits -- try running the analysis again."
         st.warning(f"⚠️ Using a static per-class template for this report, not a dynamically generated one "
-                   f"({ai_report_error}). Configure `ANTHROPIC_API_KEY` in Streamlit secrets to enable real "
-                   f"per-image report generation.")
+                   f"({ai_report_error}). {_fix_hint}")
 
     t1, t2, t3, t4 = st.tabs(["Findings", "Reasoning", "Patient Summary", "Reliability"])
 
