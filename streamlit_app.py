@@ -605,6 +605,22 @@ st.markdown(f"""
 .nav-name span{{color:#38bdf8}}
 .nav-tagline{{font-family:'DM Mono',monospace;font-size:8px;color:{"rgba(255,255,255,.45)" if _dk else "#4a6580"};letter-spacing:.15em;text-transform:uppercase;margin-top:1px}}
 .nav-right{{display:flex;gap:6px;flex-wrap:wrap;align-items:center}}
+.chip{{
+  display:inline-flex;align-items:center;gap:5px;
+  font-family:'DM Mono',monospace;font-size:9.5px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;
+  padding:5px 12px;border-radius:20px;white-space:nowrap;
+  background:{"rgba(56,189,248,.14)" if _dk else "rgba(56,189,248,.10)"};
+  border:1px solid {"rgba(56,189,248,.4)" if _dk else "rgba(56,189,248,.45)"};
+  color:{"#ffffff" if _dk else "#0369a1"};
+}}
+.chip::before{{content:"";width:5px;height:5px;border-radius:50%;background:#38bdf8;flex-shrink:0;box-shadow:0 0 6px rgba(56,189,248,.85)}}
+@media (max-width: 900px){{
+  .chip{{font-size:8.5px;padding:4px 9px}}
+}}
+@media (max-width: 640px){{
+  .nav-right .chip{{display:none}}
+}}
 
 .theme-toggle{{
   width:34px;height:34px;border-radius:50%;
