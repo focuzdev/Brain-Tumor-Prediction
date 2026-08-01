@@ -864,6 +864,12 @@ body.ns-sidebar-collapsed [data-testid="stSidebar"]{{
   .hm-stats{{grid-template-columns:repeat(2,1fr)}}
   .pip-txt{{font-size:10.5px}}
 }}
+
+@keyframes ns-spin{{to{{transform:rotate(360deg)}}}}
+.ns-loader-wrap{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3.2rem 0 3rem;gap:18px}}
+.ns-bigspin{{width:58px;height:58px;border-radius:50%;border:5px solid {"rgba(56,189,248,.14)" if _dk else "rgba(56,189,248,.18)"};border-top-color:#38bdf8;animation:ns-spin .85s linear infinite}}
+.ns-loader-txt{{font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.04em;text-align:center;color:{"rgba(255,255,255,.75)" if _dk else "rgba(10,22,40,.72)"};max-width:380px;line-height:1.6}}
+.ns-loader-step{{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.16em;color:rgba(56,189,248,.85);margin-bottom:2px}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -914,6 +920,29 @@ else:
 # ================================================================
 # MRI VALIDATION (Simple)
 # ================================================================
+def compute_image_quality(pil_img):
+    """A small, standalone image-quality proxy (contrast + dynamic range),
+    independent of which classifier ran. This exists purely so the AI report
+    generator has an actual number to categorize for its `image_quality`
+    field -- previously that field wasn't given anything, so Claude
+    (correctly, but unhelpfully for the UI) wrote out a full sentence
+    explaining that no quality metric was provided, which broke the compact
+    st.metric widget and the GOOD/ADEQUATE/POOR color mapping downstream.
+    Returns (score 0-1, label one of GOOD/ADEQUATE/POOR)."""
+    img_gray = np.array(pil_img.convert("L"), dtype=np.float32)
+    contrast = float(np.std(img_gray))
+    dark_frac = float(np.mean(img_gray < 40))
+    bright_frac = float(np.mean(img_gray > 200))
+    dynamic_range = min(1.0, (dark_frac + bright_frac) / 0.15)
+    score = max(0.0, min(1.0, (contrast / 55.0) * 0.6 + dynamic_range * 0.4))
+    if score >= 0.65:
+        label = "GOOD"
+    elif score >= 0.35:
+        label = "ADEQUATE"
+    else:
+        label = "POOR"
+    return score, label
+
 def validate_mri(pil_img):
     img_gray = np.array(pil_img.convert("L"), dtype=np.float32)
     img_rgb = np.array(pil_img.convert("RGB"), dtype=np.float32)
@@ -1262,7 +1291,8 @@ REPORT_JSON_SCHEMA_FIELDS = [
     "overall_reliability", "differential_diagnosis", "disclaimer",
 ]
 
-def generate_ai_report(pred_class, conf, explanation, per_model, mean_a, max_a, p90_a, focus_p, cam_labels):
+def generate_ai_report(pred_class, conf, explanation, per_model, mean_a, max_a, p90_a, focus_p, cam_labels,
+                        image_quality_label="ADEQUATE", image_quality_score=0.5):
     """
     Calls the real Anthropic API to write a genuinely per-image report,
     grounded strictly in this specific analysis's actual numbers -- not a
@@ -1311,6 +1341,7 @@ CLASSIFIER OUTPUT (this is the entire evidence base, do not add anything beyond 
 - Final confidence: {conf:.1f}%
 - Per-model votes before averaging: {votes_desc}
 - Grad-CAM activation statistics (within brain tissue only, 0-1 scale): mean={mean_a:.3f}, max={max_a:.3f}, 90th percentile={p90_a:.3f}, percent of tissue area with activation>0.5={focus_p:.1f}%
+- Image quality (computed from pixel contrast/dynamic range, independent of the classifier): {image_quality_label} (score {image_quality_score:.2f} on a 0-1 scale)
 - Note: {explanation}
 
 Return ONLY a JSON object (no markdown fences, no preamble) with exactly these keys, each a string
@@ -1325,6 +1356,7 @@ Guidance per field:
 - risk_level: one of LOW, MODERATE, HIGH, based on predicted class and confidence.
 - risk_justification: brief, general clinical context for that class, not image-specific claims.
 - patient_explanation: plain language, 1-2 sentences, reassuring but honest that this is AI-assisted, not a diagnosis.
+- image_quality: must be exactly one of GOOD, ADEQUATE, or POOR -- simply echo the image quality value given above verbatim, do not write a sentence and do not invent a different category, even if you'd personally judge it differently.
 - uncertainty_factors: name what would reduce confidence in THIS specific result (e.g. low confidence, model disagreement, low activation focus) using the actual numbers given.
 - reliability_score: an integer 0-100 you compute reasonably from confidence + model agreement + activation focus, not a fixed per-class constant.
 - overall_reliability: one short phrase summarizing that score.
@@ -1873,10 +1905,26 @@ if clicked and img:
 </div>
 """, unsafe_allow_html=True)
 
+    # Reusable big circular loader used for every step of the pipeline below
+    # (Streamlit's default spinner is a small inline icon; this is a larger,
+    # centered indicator with a step label so users always know it's working
+    # and roughly where in the pipeline it is).
+    _loader = st.empty()
+    def _set_loader(step_label, detail):
+        _loader.markdown(f'''<div class="ns-loader-wrap">
+<div class="ns-bigspin"></div>
+<div>
+<div class="ns-loader-step">{step_label}</div>
+<div class="ns-loader-txt">{detail}</div>
+</div>
+</div>''', unsafe_allow_html=True)
+
     # Step 1: MRI Validation
+    _img_quality_score, _img_quality_label = compute_image_quality(img)
     if not override:
-        with st.spinner("Validating image..."):
-            is_valid_mri, mri_confidence, mri_reason = validate_mri(img)
+        _set_loader("Step 1 / 4", "Validating image")
+        is_valid_mri, mri_confidence, mri_reason = validate_mri(img)
+        _loader.empty()
 
         with col_out:
             mri_gate_ui(is_valid_mri, mri_confidence, mri_reason, _dk)
@@ -1894,45 +1942,46 @@ if clicked and img:
     active_cam_label = None
     cam_candidates = []  # [(label, model, preprocess_style), ...] -- every loaded model, for ensemble comparison
     per_model = {}
-    with st.spinner("Running AI analysis..."):
-        loaded_models, _, runtime_meta = load_models(_get_model_mode())
-        if loaded_models:
-            try:
-                preds, explanation, per_model = predict_with_models(img, loaded_models, runtime_meta)
-                used_real_model = True
-                for key in ("mobilenet", "custom_cnn"):
-                    if key in loaded_models:
-                        meta = runtime_meta.get(key, {})
-                        default_style = "mobilenet" if key == "mobilenet" else "resnet"
-                        default_label = "MobileNetV2" if key == "mobilenet" else "ResNet50V2"
-                        cam_candidates.append((
-                            meta.get("label", default_label),
-                            loaded_models[key],
-                            meta.get("preprocess", default_style),
-                        ))
-                # Keep a single "primary" choice for anything that only wants
-                # one heatmap (JSON export, single-model modes, etc.) --
-                # prefer MobileNetV2 since it's the one confirmed reliable.
-                if "mobilenet" in loaded_models:
-                    meta = runtime_meta.get("mobilenet", {})
-                    active_model_for_cam = loaded_models["mobilenet"]
-                    active_preprocess_style = meta.get("preprocess", "mobilenet")
-                    active_cam_label = meta.get("label", "MobileNetV2")
-                elif "custom_cnn" in loaded_models:
-                    meta = runtime_meta.get("custom_cnn", {})
-                    active_model_for_cam = loaded_models["custom_cnn"]
-                    active_preprocess_style = meta.get("preprocess", "resnet")
-                    active_cam_label = meta.get("label", "ResNet50V2")
-            except Exception as e:
-                st.error(f"Model inference failed ({e}); falling back to non-model heuristic.")
-                preds, explanation = predict_with_heuristic(img)
-        else:
+    _set_loader("Step 2 / 4", "Running AI classification")
+    loaded_models, _, runtime_meta = load_models(_get_model_mode())
+    if loaded_models:
+        try:
+            preds, explanation, per_model = predict_with_models(img, loaded_models, runtime_meta)
+            used_real_model = True
+            for key in ("mobilenet", "custom_cnn"):
+                if key in loaded_models:
+                    meta = runtime_meta.get(key, {})
+                    default_style = "mobilenet" if key == "mobilenet" else "resnet"
+                    default_label = "MobileNetV2" if key == "mobilenet" else "ResNet50V2"
+                    cam_candidates.append((
+                        meta.get("label", default_label),
+                        loaded_models[key],
+                        meta.get("preprocess", default_style),
+                    ))
+            # Keep a single "primary" choice for anything that only wants
+            # one heatmap (JSON export, single-model modes, etc.) --
+            # prefer MobileNetV2 since it's the one confirmed reliable.
+            if "mobilenet" in loaded_models:
+                meta = runtime_meta.get("mobilenet", {})
+                active_model_for_cam = loaded_models["mobilenet"]
+                active_preprocess_style = meta.get("preprocess", "mobilenet")
+                active_cam_label = meta.get("label", "MobileNetV2")
+            elif "custom_cnn" in loaded_models:
+                meta = runtime_meta.get("custom_cnn", {})
+                active_model_for_cam = loaded_models["custom_cnn"]
+                active_preprocess_style = meta.get("preprocess", "resnet")
+                active_cam_label = meta.get("label", "ResNet50V2")
+        except Exception as e:
+            st.error(f"Model inference failed ({e}); falling back to non-model heuristic.")
             preds, explanation = predict_with_heuristic(img)
+    else:
+        preds, explanation = predict_with_heuristic(img)
 
-        if temperature != 1.0:
-            logits = np.log(np.clip(preds, 1e-7, 1.0))
-            scaled = np.exp(logits / temperature)
-            preds = scaled / scaled.sum()
+    if temperature != 1.0:
+        logits = np.log(np.clip(preds, 1e-7, 1.0))
+        scaled = np.exp(logits / temperature)
+        preds = scaled / scaled.sum()
+    _loader.empty()
 
     with col_out:
         if used_real_model:
@@ -1969,42 +2018,43 @@ if clicked and img:
     # Step 3: Heatmap
     heatmap_is_real = False
     cam_results = {}  # label -> (heatmap, overlay, is_real, own_top_class)
-    with st.spinner("Generating Grad-CAM heatmap..."):
-        heatmap = None
-        if used_real_model and cam_candidates:
-            for label, cand_model, cand_style in cam_candidates:
-                # IMPORTANT: use THIS model's own top predicted class, not the
-                # ensemble's. Forcing every model's Grad-CAM to target the
-                # ensemble's chosen class produces a heatmap answering "why
-                # does this look like {ensemble class}" even for a model that
-                # itself predicted something else entirely -- that's not
-                # that model's real reasoning, it's a misleading question to
-                # ask its gradients. Each panel should explain what that
-                # specific model actually concluded.
-                own_pred = per_model.get(label)
-                own_pidx = int(np.argmax(own_pred)) if own_pred is not None else pidx
-                own_pcls = CLASS_NAMES[own_pidx]
-                try:
-                    cand_heatmap = generate_gradcam(img, cand_model, cand_style, own_pidx)
-                except Exception as e:
-                    st.caption(f"Grad-CAM computation failed for {label} ({e}).")
-                    cand_heatmap = None
-                is_real = cand_heatmap is not None
-                if cand_heatmap is None:
-                    cand_heatmap = generate_heatmap(img, own_pcls)
-                cand_overlay = overlay_heatmap(img, cand_heatmap, alpha=alpha)
-                cam_results[label] = (cand_heatmap, cand_overlay, is_real, own_pcls)
-            # Primary heatmap/overlay (used for the JSON export, activation
-            # stats, etc.) is whichever one the rest of the app already
-            # expects as "the" heatmap -- prefer MobileNetV2 for consistency
-            # with what's been validated end-to-end.
-            if active_cam_label and active_cam_label in cam_results:
-                heatmap, overlay, heatmap_is_real, _ = cam_results[active_cam_label]
-            else:
-                heatmap, overlay, heatmap_is_real, _ = next(iter(cam_results.values()))
-        if heatmap is None:
-            heatmap = generate_heatmap(img, pcls)
-            overlay = overlay_heatmap(img, heatmap, alpha=alpha)
+    _set_loader("Step 3 / 4", "Generating Grad-CAM heatmap")
+    heatmap = None
+    if used_real_model and cam_candidates:
+        for label, cand_model, cand_style in cam_candidates:
+            # IMPORTANT: use THIS model's own top predicted class, not the
+            # ensemble's. Forcing every model's Grad-CAM to target the
+            # ensemble's chosen class produces a heatmap answering "why
+            # does this look like {ensemble class}" even for a model that
+            # itself predicted something else entirely -- that's not
+            # that model's real reasoning, it's a misleading question to
+            # ask its gradients. Each panel should explain what that
+            # specific model actually concluded.
+            own_pred = per_model.get(label)
+            own_pidx = int(np.argmax(own_pred)) if own_pred is not None else pidx
+            own_pcls = CLASS_NAMES[own_pidx]
+            try:
+                cand_heatmap = generate_gradcam(img, cand_model, cand_style, own_pidx)
+            except Exception as e:
+                st.caption(f"Grad-CAM computation failed for {label} ({e}).")
+                cand_heatmap = None
+            is_real = cand_heatmap is not None
+            if cand_heatmap is None:
+                cand_heatmap = generate_heatmap(img, own_pcls)
+            cand_overlay = overlay_heatmap(img, cand_heatmap, alpha=alpha)
+            cam_results[label] = (cand_heatmap, cand_overlay, is_real, own_pcls)
+        # Primary heatmap/overlay (used for the JSON export, activation
+        # stats, etc.) is whichever one the rest of the app already
+        # expects as "the" heatmap -- prefer MobileNetV2 for consistency
+        # with what's been validated end-to-end.
+        if active_cam_label and active_cam_label in cam_results:
+            heatmap, overlay, heatmap_is_real, _ = cam_results[active_cam_label]
+        else:
+            heatmap, overlay, heatmap_is_real, _ = next(iter(cam_results.values()))
+    if heatmap is None:
+        heatmap = generate_heatmap(img, pcls)
+        overlay = overlay_heatmap(img, heatmap, alpha=alpha)
+    _loader.empty()
 
     if not heatmap_is_real:
         with col_out:
@@ -2043,13 +2093,21 @@ if clicked and img:
     heatmap = _masked_heatmap_for_stats  # use the tissue-masked version for every downstream panel/export too
 
     # Step 4: Report
-    with st.spinner("🧠 Consulting Claude to draft a per-image clinical narrative from this analysis's confidence, model agreement, and Grad-CAM statistics..."):
-        _cam_labels_for_report = [cfg["label"] for cfg in _active_model_configs() if cfg["key"] in loaded_models] if used_real_model else []
-        report, used_real_ai_report, ai_report_error = generate_ai_report(
-            pcls, conf, explanation, per_model, mean_a, max_a, p90_a, focus_p, _cam_labels_for_report
-        )
-        if report is None:
-            report = template_report(pcls, conf, explanation)
+    _set_loader("Step 4 / 4", "Drafting clinical report")
+    _cam_labels_for_report = [cfg["label"] for cfg in _active_model_configs() if cfg["key"] in loaded_models] if used_real_model else []
+    report, used_real_ai_report, ai_report_error = generate_ai_report(
+        pcls, conf, explanation, per_model, mean_a, max_a, p90_a, focus_p, _cam_labels_for_report,
+        image_quality_label=_img_quality_label, image_quality_score=_img_quality_score,
+    )
+    if report is None:
+        report = template_report(pcls, conf, explanation)
+    # Defensive: even with explicit prompt guidance, don't trust the
+    # model to always return exactly one of the three enum values --
+    # fall back to the metric we actually computed rather than passing
+    # arbitrary text into a widget/color-map built for GOOD/ADEQUATE/POOR.
+    if report.get("image_quality") not in ("GOOD", "ADEQUATE", "POOR"):
+        report["image_quality"] = _img_quality_label
+    _loader.empty()
     # NOTE: the "generated by Claude" disclosure itself is rendered later,
     # directly above the Clinical Report tabs -- not here. Showing it this
     # early (before the prediction/class-distribution/heatmap results below
@@ -2240,10 +2298,9 @@ if clicked and img:
             '<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;'
             'border-radius:10px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.35);'
             'font-family:\'DM Mono\',monospace;font-size:11px;margin-bottom:12px;">'
-            '✍️ <strong>The write-up below (only) was drafted by Claude (Anthropic)</strong> from this '
-            'analysis\'s classifier output -- confidence, model agreement, and Grad-CAM statistics -- '
-            'not a fixed per-class template. The prediction and heatmap above come solely from the CNN '
-            'classifier; Claude did not see the image and did not make the classification.</div>',
+            '✍️ <strong>Report text written by Claude (Anthropic)</strong>, summarizing the classifier\'s '
+            'numeric results above (confidence, model agreement, Grad-CAM statistics). The prediction and '
+            'heatmap are generated by the CNN model, not Claude.</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -2285,9 +2342,10 @@ if clicked and img:
 classification model output only and is not a substitute for professional radiologic or
 clinical diagnosis; all findings must be confirmed by a qualified radiologist and clinician
 reviewing the actual imaging and patient context. The narrative text above was drafted by
-Claude (Anthropic), an AI language model, strictly from the classifier's quantitative output
-(predicted class, confidence, per-model votes, Grad-CAM statistics) -- it did not independently
-review the source image. All findings require review by a licensed radiologist or neurosurgeon.
+Claude (Anthropic), an AI language model, which summarizes the classifier's quantitative
+output (predicted class, confidence, per-model votes, Grad-CAM statistics); the CNN classifier
+performs the image analysis, Claude writes up its results. All findings require review by a
+licensed radiologist or neurosurgeon.
 </div>""", unsafe_allow_html=True)
 
     # Export JSON
