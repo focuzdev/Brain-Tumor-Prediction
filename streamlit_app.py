@@ -720,8 +720,8 @@ st.markdown(f"""
 .rb-t{{font-family:'DM Mono',monospace;font-size:9px;color:{"rgba(255,255,255,.55)" if _dk else "#2d4a6b"};text-transform:uppercase;letter-spacing:.14em;margin-bottom:7px}}
 .rb-b{{font-size:14px;line-height:1.9;color:{"rgba(255,255,255,.88)" if _dk else "#0a1628"}}}
 
-.disc{{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-left:3px solid rgba(245,158,11,.8);border-radius:0 12px 12px 0;padding:13px 18px;font-family:'DM Mono',monospace;font-size:10px;color:#fcd34d;line-height:1.78;margin-top:20px}}
-.disc strong{{color:#f59e0b}}
+.disc{{background:{"rgba(245,158,11,.08)" if _dk else "#fff8e6"};border:1px solid rgba(245,158,11,.35);border-left:3px solid rgba(245,158,11,.85);border-radius:0 12px 12px 0;padding:13px 18px;font-family:'DM Mono',monospace;font-size:11px;color:{"#fde68a" if _dk else "#7a4a00"};line-height:1.78;margin-top:20px}}
+.disc strong{{color:{"#fbbf24" if _dk else "#8a5300"}}}
 
 [data-testid="stSidebar"]{{background:{"rgba(10,14,26,.98)" if _dk else "#f0f8ff"} !important;border-right:1px solid {"rgba(56,189,248,.09)" if _dk else "#a8cfe0"} !important}}
 [data-testid="stSidebar"] p,[data-testid="stSidebar"] label,[data-testid="stSidebar"] span{{color:{text_color} !important}}
@@ -818,6 +818,51 @@ body.ns-sidebar-collapsed [data-testid="stSidebar"]{{
 #ns-sb-toggle:hover{{
   transform:scale(1.05);
   background:{"#28405f" if _dk else "#e6f4fd"};
+}}
+
+/* ---------------------------------------------------------------
+   MOBILE RESPONSIVE OVERRIDES. The layout above assumes a wide
+   desktop viewport (fixed 21rem sidebar, 2.4-2.8rem side padding,
+   4-column stat grids). On a phone-width screen that sidebar alone
+   eats most of the visible area and 4-column grids get crushed
+   into unreadable slivers, so everything below re-flows those for
+   narrow viewports without touching the desktop styles above.
+   --------------------------------------------------------------- */
+@media (max-width: 768px){{
+  .topnav{{padding:.65rem 1rem}}
+  .nav-tagline{{display:none}}
+  .hero{{padding:2rem 0 1.6rem}}
+  .hero-inner{{padding:0 1.1rem}}
+  .hero-top{{flex-direction:column;align-items:flex-start;gap:1rem}}
+  .hero-stats{{gap:1.4rem;width:100%}}
+  .wrap{{padding:1.2rem 1.1rem 3rem}}
+  .glass{{padding:1.3rem 1.2rem;border-radius:16px}}
+  .pred-card{{padding:1.2rem 1.2rem}}
+  .pred-name{{font-size:clamp(24px,7vw,34px)}}
+  .hm-stats{{grid-template-columns:repeat(2,1fr)}}
+  .hm-exp-grid{{grid-template-columns:1fr}}
+  .cscale-lbls{{font-size:7.5px}}
+
+  /* The sidebar's fixed 21rem width is a desktop assumption -- on a
+     phone that's wider than the screen itself. Let it size to the
+     viewport instead when it's open; the show/hide toggle logic
+     (body.ns-sidebar-collapsed) is untouched. */
+  [data-testid="stSidebar"]{{
+    min-width:88vw !important;
+    width:88vw !important;
+  }}
+  [data-testid="stSidebar"][aria-expanded="false"]{{
+    min-width:88vw !important;
+    width:88vw !important;
+  }}
+}}
+@media (max-width: 480px){{
+  .hero-h1{{font-size:clamp(1.5rem,7vw,2rem)}}
+  .hero-desc{{font-size:13.5px}}
+  .hero-stats{{gap:1rem}}
+  .hs{{text-align:left}}
+  .hm-stats{{grid-template-columns:repeat(2,1fr)}}
+  .pip-txt{{font-size:10.5px}}
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -1255,6 +1300,12 @@ what a classification-only model output can support (e.g. you cannot state a pre
 Grad-CAM statistics given below actually support a location claim -- if not, say location cannot be determined
 from classification alone and would need radiologist review of the actual images).
 
+TONE: Write in the register of a radiology decision-support summary read by a neurosurgeon or radiologist --
+direct, precise, and confident about what the data actually shows. State the numbers plainly rather than
+hedging every sentence ("may possibly suggest", "it could potentially indicate"). Reserve uncertainty language
+specifically for the points that are genuinely uncertain (location, definitive diagnosis) rather than spreading
+it across every sentence -- an over-hedged report reads as less credible to a clinical reader, not more careful.
+
 CLASSIFIER OUTPUT (this is the entire evidence base, do not add anything beyond it):
 - Final predicted class: {pred_class}
 - Final confidence: {conf:.1f}%
@@ -1267,7 +1318,7 @@ Return ONLY a JSON object (no markdown fences, no preamble) with exactly these k
 {json.dumps(REPORT_JSON_SCHEMA_FIELDS)}
 
 Guidance per field:
-- clinical_interpretation: 1-2 sentences on what this classifier output suggests, referencing the confidence and activation stats.
+- clinical_interpretation: 1-2 sentences, stated plainly, on what this classifier output suggests, referencing the confidence and activation stats.
 - location_morphology: only general terms consistent with the predicted class; explicitly say precise anatomical location requires radiologist review of the actual images, since a classifier alone cannot localize with certainty.
 - model_reasoning: reference the actual confidence and per-model agreement/disagreement given above.
 - gradcam_analysis: describe based on the actual activation stats given (e.g. high focus_p + high max = concentrated hotspot; low values = diffuse/non-specific).
@@ -1746,18 +1797,22 @@ with col_out:
     st.markdown('<div class="slbl"><span id="ns-result-label">Model Output - Prediction</span></div>', unsafe_allow_html=True)
     
     if not clicked:
-        st.markdown('''<div class="glass" style="min-height:440px;display:flex;align-items:center;justify-content:center;text-align:center;padding:3rem;">
+        _ph_muted = "rgba(255,255,255,.65)" if _dk else "#2d4a6b"
+        _ph_chip = "#7dd3fc" if _dk else "#0369a1"
+        _ph_chip_bg = "rgba(56,189,248,.10)" if _dk else "rgba(56,189,248,.12)"
+        _ph_chip_bd = "rgba(56,189,248,.28)" if _dk else "rgba(56,189,248,.45)"
+        st.markdown(f'''<div class="glass" style="min-height:440px;display:flex;align-items:center;justify-content:center;text-align:center;padding:3rem;">
 <div>
 <div style="font-size:54px;margin-bottom:18px;">🔬</div>
-<div style="font-family:Space Grotesk,sans-serif;font-size:19px;font-weight:600;color:#e2e8f0;line-height:1.4;margin-bottom:8px;">Ready for Analysis</div>
-<div style="font-family:Inter,sans-serif;font-size:13.5px;color:rgba(255,255,255,.65);line-height:1.85;margin-bottom:22px;">
+<div style="font-family:Space Grotesk,sans-serif;font-size:19px;font-weight:600;color:{text_color};line-height:1.4;margin-bottom:8px;">Ready for Analysis</div>
+<div style="font-family:Inter,sans-serif;font-size:13.5px;color:{_ph_muted};line-height:1.85;margin-bottom:22px;">
               Upload a brain MRI or select a sample,<br>
               then click <strong>Analyse</strong> to run the full pipeline.
 </div>
 <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
-<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">AI PREDICTION</span>
-<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">GRAD-CAM HEATMAP</span>
-<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;letter-spacing:.07em;white-space:nowrap;">CLINICAL REPORT</span>
+<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:{_ph_chip_bg};border:1px solid {_ph_chip_bd};color:{_ph_chip};letter-spacing:.07em;white-space:nowrap;">AI PREDICTION</span>
+<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:{_ph_chip_bg};border:1px solid {_ph_chip_bd};color:{_ph_chip};letter-spacing:.07em;white-space:nowrap;">GRAD-CAM HEATMAP</span>
+<span style="font-family:DM Mono,monospace;font-size:9.5px;padding:5px 14px;border-radius:20px;background:{_ph_chip_bg};border:1px solid {_ph_chip_bd};color:{_ph_chip};letter-spacing:.07em;white-space:nowrap;">CLINICAL REPORT</span>
 </div>
 </div>
 </div>''', unsafe_allow_html=True)
@@ -1796,7 +1851,10 @@ if clicked and img:
   display:flex; align-items:center; gap:12px;
   box-shadow:0 8px 32px rgba(0,0,0,.35);
   animation: ns-slide-in .4s ease forwards, ns-fade-out .5s ease 4s forwards;
-  min-width:320px; max-width:480px; pointer-events:none;
+  min-width:320px; max-width:min(480px,90vw); pointer-events:none;
+}
+@media (max-width: 420px){
+  #ns-toast{ min-width:0; width:90vw; left:5vw; right:5vw; transform:none; padding:10px 16px 10px 12px; }
 }
 #ns-toast-icon { font-size:22px; flex-shrink:0; }
 #ns-toast-title { font-family:'Space Grotesk',sans-serif; font-size:14px; font-weight:600; color:#e2e8f0; margin-bottom:2px; }
@@ -1995,8 +2053,14 @@ if clicked and img:
 
     with col_out:
         if used_real_ai_report:
-            st.caption("✍️ This report was generated by Claude based on this specific analysis's actual numbers, "
-                       "not a fixed per-class template.")
+            st.markdown(
+                '<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;'
+                'border-radius:10px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.35);'
+                'font-family:\'DM Mono\',monospace;font-size:11px;margin-bottom:10px;">'
+                '✍️ <strong>Narrative generated by Claude (Anthropic)</strong> from this analysis\'s '
+                'actual classifier output -- not a fixed per-class template.</div>',
+                unsafe_allow_html=True,
+            )
         else:
             st.warning(f"⚠️ Using a static per-class template for this report, not a dynamically generated one "
                        f"({ai_report_error}). Configure `ANTHROPIC_API_KEY` in Streamlit secrets to enable real "
@@ -2193,9 +2257,13 @@ if clicked and img:
 
     st.markdown(f"""
 <div class="disc">
-<strong>AI-Assisted Decision Support Only</strong> -
-  {report.get("disclaimer", "")}
-  All findings require review by a licensed radiologist or neurosurgeon.
+<strong>AI-Assisted Decision Support Only</strong> - This summary is generated from an AI
+classification model output only and is not a substitute for professional radiologic or
+clinical diagnosis; all findings must be confirmed by a qualified radiologist and clinician
+reviewing the actual imaging and patient context. The narrative text above was drafted by
+Claude (Anthropic), an AI language model, strictly from the classifier's quantitative output
+(predicted class, confidence, per-model votes, Grad-CAM statistics) -- it did not independently
+review the source image. All findings require review by a licensed radiologist or neurosurgeon.
 </div>""", unsafe_allow_html=True)
 
     # Export JSON
