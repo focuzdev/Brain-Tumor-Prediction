@@ -1284,12 +1284,37 @@ Guidance per field:
         client = anthropic.Anthropic(api_key=api_key)
         resp = client.messages.create(
             model="claude-sonnet-5",
-            max_tokens=1200,
+            # 1200 was too tight for a 14-field structured report (clinical
+            # interpretation, differential diagnosis, next steps, etc. all
+            # add up) -- Claude was running out of budget mid-field, which
+            # truncates the JSON and produces "Unterminated string" on
+            # parse. Bumped up with headroom; a single short JSON report is
+            # still a tiny fraction of a cent even at this ceiling.
+            max_tokens=3000,
             messages=[{"role": "user", "content": prompt}],
         )
+
+        if resp.stop_reason == "max_tokens":
+            _log(
+                "[ai_report] Response was truncated by max_tokens before the JSON "
+                "closed -- this should not happen at the current limit, but if it "
+                "recurs the limit needs raising further or the prompt needs to ask "
+                "for shorter fields."
+            )
+            return None, False, (
+                "Claude's response was cut off before it finished (hit the max_tokens "
+                "limit) -- the report couldn't be parsed as a result. Try again; if it "
+                "keeps happening the per-report token limit in the code needs raising."
+            )
+
         text = "".join(block.text for block in resp.content if hasattr(block, "text")).strip()
         text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            _log(f"[ai_report] JSON parse failed ({e}); raw text was: {text[:2000]!r}")
+            return None, False, f"Could not parse Claude's response as JSON: {e}"
+
         missing = [f for f in REPORT_JSON_SCHEMA_FIELDS if f not in data]
         if missing:
             return None, False, f"Claude response missing fields: {missing}"
