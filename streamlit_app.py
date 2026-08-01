@@ -751,7 +751,24 @@ st.markdown(f"""
 [data-testid="stImage"] img{{border-radius:12px !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important}}
 [data-testid="stSelectbox"]>div>div{{background:{"#1e2d45" if _dk else "#ffffff"} !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{{color:{"rgba(255,255,255,.75)" if _dk else "#0a1628"} !important}}
-[data-testid="stSelectbox"] [data-baseweb="select"] *{{color:{text_color} !important}}
+/* The selected value and placeholder text inside Streamlit's selectbox are
+   rendered by BaseWeb/react-select, which ships its own text color that a
+   single broad "*" rule doesn't always beat depending on render order.
+   Target every element BaseWeb is known to use for that text explicitly,
+   with a solid, unambiguous color instead of the softer default -- this is
+   meant to always be crisp and legible, not a muted/secondary tone. */
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stSelectbox"] [data-baseweb="select"] *,
+[data-testid="stSelectbox"] [data-baseweb="select"] div,
+[data-testid="stSelectbox"] [data-baseweb="select"] span,
+[data-testid="stSelectbox"] [data-baseweb="select"] p,
+[data-testid="stSelectbox"] [class*="valueContainer"],
+[data-testid="stSelectbox"] [class*="valueContainer"] *,
+[data-testid="stSelectbox"] [class*="singleValue"],
+[data-testid="stSelectbox"] [class*="placeholder"]{{
+  color:{"#ffffff" if _dk else "#0a1628"} !important;
+  opacity:1 !important;
+}}
 [data-testid="stSelectbox"] svg{{fill:{text_color} !important}}
 [data-testid="stSelectbox"] [data-baseweb="select"]{{background:{"#1e2d45" if _dk else "#ffffff"} !important}}
 [data-baseweb="menu"]{{background:{"#0f1e36" if _dk else "#ffffff"} !important;border:1px solid rgba(56,189,248,.25) !important;border-radius:10px !important}}
