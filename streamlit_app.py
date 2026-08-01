@@ -934,6 +934,42 @@ if hasattr(st, "iframe"):
 else:
     components.html(_SIDEBAR_TOGGLE_SCRIPT, height=0, width=0)
 
+# The CSS rules above for stSelectbox text color don't always win against
+# BaseWeb/react-select's own generated styling (it can apply color via
+# dynamically-injected, obfuscated-class stylesheets whose rules sometimes
+# load after ours). Belt-and-suspenders fix: directly force an inline
+# style with JS, which is the single highest-priority way to set a CSS
+# property short of a stylesheet author using !important on an inline
+# style themselves. Re-applied on every DOM mutation and on an interval
+# so it survives re-renders when a selection changes or the menu opens.
+_SELECT_COLOR_FIX_SCRIPT = f"""
+<script>
+(function(){{
+  var doc = window.parent.document;
+  var color = "{"#ffffff" if _dk else "#0a1628"}";
+  function fix(){{
+    var boxes = doc.querySelectorAll('[data-testid="stSelectbox"] [data-baseweb="select"] *');
+    for (var i = 0; i < boxes.length; i++) {{
+      boxes[i].style.setProperty('color', color, 'important');
+      boxes[i].style.setProperty('opacity', '1', 'important');
+    }}
+    var menuOpts = doc.querySelectorAll('[data-baseweb="menu"] *');
+    for (var j = 0; j < menuOpts.length; j++) {{
+      menuOpts[j].style.setProperty('color', color, 'important');
+    }}
+  }}
+  fix();
+  var mo = new MutationObserver(fix);
+  try {{ mo.observe(doc.body, {{childList: true, subtree: true, attributes: true}}); }} catch(e) {{}}
+  setInterval(fix, 400);
+}})();
+</script>
+"""
+if hasattr(st, "iframe"):
+    st.iframe(_SELECT_COLOR_FIX_SCRIPT, height=1, width=1)
+else:
+    components.html(_SELECT_COLOR_FIX_SCRIPT, height=0, width=0)
+
 # ================================================================
 # MRI VALIDATION (Simple)
 # ================================================================
