@@ -765,14 +765,14 @@ st.markdown(f"""
   border-radius:9px !important;padding:9px 16px !important;width:100% !important;box-shadow:none !important
 }}
 [data-testid="stImage"] img{{border-radius:12px !important;border:1px solid {"rgba(255,255,255,.1)" if _dk else "#a8cfe0"} !important}}
-[data-testid="stSelectbox"]>div>div{{background:{"#1e2d45" if _dk else "#ffffff"} !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
+[data-testid="stSelectbox"]>div>div{{background:#ffffff !important;border:1.5px solid rgba(56,189,248,.5) !important;border-radius:11px !important;min-height:46px !important}}
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{{color:{"rgba(255,255,255,.75)" if _dk else "#0a1628"} !important}}
 /* The selected value and placeholder text inside Streamlit's selectbox are
    rendered by BaseWeb/react-select, which ships its own text color that a
    single broad "*" rule doesn't always beat depending on render order.
-   Target every element BaseWeb is known to use for that text explicitly,
-   with a solid, unambiguous color instead of the softer default -- this is
-   meant to always be crisp and legible, not a muted/secondary tone. */
+   Rather than keep fighting that per-theme, force this one control to
+   always be a plain white field with plain black text in both themes --
+   guaranteed legible regardless of what BaseWeb tries to apply. */
 [data-testid="stSelectbox"] [data-baseweb="select"],
 [data-testid="stSelectbox"] [data-baseweb="select"] *,
 [data-testid="stSelectbox"] [data-baseweb="select"] div,
@@ -782,14 +782,14 @@ st.markdown(f"""
 [data-testid="stSelectbox"] [class*="valueContainer"] *,
 [data-testid="stSelectbox"] [class*="singleValue"],
 [data-testid="stSelectbox"] [class*="placeholder"]{{
-  color:{"#ffffff" if _dk else "#0a1628"} !important;
+  color:#000000 !important;
   opacity:1 !important;
 }}
-[data-testid="stSelectbox"] svg{{fill:{text_color} !important}}
-[data-testid="stSelectbox"] [data-baseweb="select"]{{background:{"#1e2d45" if _dk else "#ffffff"} !important}}
-[data-baseweb="menu"]{{background:{"#0f1e36" if _dk else "#ffffff"} !important;border:1px solid rgba(56,189,248,.25) !important;border-radius:10px !important}}
-[data-baseweb="menu"] [role="option"]{{background:transparent !important;color:{text_color} !important;padding:12px 18px !important}}
-[data-baseweb="menu"] [role="option"]:hover{{background:rgba(37,99,235,.18) !important;color:#38bdf8 !important}}
+[data-testid="stSelectbox"] svg{{fill:#000000 !important}}
+[data-testid="stSelectbox"] [data-baseweb="select"]{{background:#ffffff !important}}
+[data-baseweb="menu"]{{background:#ffffff !important;border:1px solid rgba(56,189,248,.25) !important;border-radius:10px !important}}
+[data-baseweb="menu"] [role="option"], [data-baseweb="menu"] [role="option"] *{{background:transparent !important;color:#000000 !important;padding:12px 18px !important}}
+[data-baseweb="menu"] [role="option"]:hover, [data-baseweb="menu"] [role="option"]:hover *{{background:rgba(56,189,248,.15) !important;color:#0369a1 !important}}
 /* Sidebar show/hide control -- fully replaced by our own #ns-sb-toggle button
    below (rendered via components.html so its click handler actually runs).
    Hide Streamlit's native controls so there's no confusing duplicate icon. */
@@ -962,16 +962,25 @@ _SELECT_COLOR_FIX_SCRIPT = f"""
 <script>
 (function(){{
   var doc = window.parent.document;
-  var color = "{"#ffffff" if _dk else "#0a1628"}";
+  var textColor = "#000000";
+  var bgColor = "#ffffff";
   function fix(){{
-    var boxes = doc.querySelectorAll('[data-testid="stSelectbox"] [data-baseweb="select"] *');
+    var boxes = doc.querySelectorAll('[data-testid="stSelectbox"] [data-baseweb="select"], [data-testid="stSelectbox"] [data-baseweb="select"] *');
     for (var i = 0; i < boxes.length; i++) {{
-      boxes[i].style.setProperty('color', color, 'important');
+      boxes[i].style.setProperty('color', textColor, 'important');
       boxes[i].style.setProperty('opacity', '1', 'important');
+    }}
+    var fields = doc.querySelectorAll('[data-testid="stSelectbox"] [data-baseweb="select"]');
+    for (var k = 0; k < fields.length; k++) {{
+      fields[k].style.setProperty('background', bgColor, 'important');
     }}
     var menuOpts = doc.querySelectorAll('[data-baseweb="menu"] *');
     for (var j = 0; j < menuOpts.length; j++) {{
-      menuOpts[j].style.setProperty('color', color, 'important');
+      menuOpts[j].style.setProperty('color', textColor, 'important');
+    }}
+    var menus = doc.querySelectorAll('[data-baseweb="menu"]');
+    for (var m = 0; m < menus.length; m++) {{
+      menus[m].style.setProperty('background', bgColor, 'important');
     }}
   }}
   fix();
