@@ -8,7 +8,7 @@
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-2.13+-orange.svg)](https://tensorflow.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Live Demo:** [https://hafeez-brain-tumor-prediction.streamlit.app/](https://hafeez-brain-tumor-prediction.streamlit.app/)
+**Live Demo:** [[https://hafeez-brain-tumor-prediction.streamlit.app/]([https://brain-tumor-prediction-mri-classifier.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))]([https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))
 
 </div>
 
@@ -37,7 +37,7 @@ NeuroScan AI is an interactive clinical decision support tool that uses deep lea
 
 ## 🚀 Live Demo
 
-**Test the application now:** 👉 [https://hafeez-brain-tumor-prediction.streamlit.app/](https://hafeez-brain-tumor-prediction.streamlit.app/)
+**Test the application now:** 👉 [[https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/)]([https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))
 
 ### Quick Test Steps:
 1. Select a sample image from the sidebar (Glioma, Meningioma, etc.)
