@@ -26,11 +26,11 @@ NeuroScan AI is an interactive clinical decision support application that uses d
 
 ## 🔥 Key Features
 
-- ✅ **Deep Learning Classification** using EfficientNetB0
-- ✅ **Grad-CAM Explainability** with visual attention heatmaps
-- ✅ **AI-Generated Clinical Reports** powered by Anthropic Claude
-- ✅ **Interactive Web Interface** with image upload and sample MRI scans
-- ✅ **Downloadable Prediction Reports** in JSON format
+✅ **Deep Learning Classification** using EfficientNetB0
+✅ **Grad-CAM Explainability** with visual attention heatmaps
+✅ **AI-Generated Clinical Reports** powered by Anthropic Claude
+✅ **Interactive Web Interface** with image upload and sample MRI scans
+✅ **Downloadable Prediction Reports** in JSON format
 
 ---
 
