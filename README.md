@@ -8,7 +8,7 @@
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-2.13+-orange.svg)](https://tensorflow.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Live Demo:** [[[https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/)]([https://brain-tumor-prediction-mri-classifier.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))]([https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))
+**Live Demo:** [[(https://brain-tumor-prediction-mri-classifier.streamlit.app/)]([https://brain-tumor-prediction-mri-classifier.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))])
 
 </div>
 
