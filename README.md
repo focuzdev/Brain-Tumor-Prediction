@@ -1,22 +1,21 @@
 <div align="center">
   
-# 🧠 NeuroScan AI 
-### Brain Tumor MRI Classification with Explainable AI
+# 🧠 NeuroScan AI
+### Explainable Brain Tumor MRI Classification using Deep Learning
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://hafeez-brain-tumor-prediction.streamlit.app/)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.13+-orange.svg)](https://tensorflow.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+<p align="center">
 
-**Live Demo:** [[(https://brain-tumor-prediction-mri-classifier.streamlit.app/)]([https://brain-tumor-prediction-mri-classifier.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))])
+### 🚀 **Try the Live Application**
 
-</div>
+**👉 https://brain-tumor-prediction-mri-classifier.streamlit.app/**
+
+</p>
 
 ---
 
 ## 📌 Overview
 
-NeuroScan AI is an interactive clinical decision support tool that uses deep learning to classify brain MRI scans into **four categories**:
+NeuroScan AI is an interactive clinical decision support application that uses deep learning and Explainable AI (Grad-CAM) to classify brain MRI scans into four diagnostic categories while providing visual explanations and AI-assisted clinical reporting.
 
 | Class | Description |
 |-------|-------------|
@@ -25,19 +24,21 @@ NeuroScan AI is an interactive clinical decision support tool that uses deep lea
 | 🟣 **Pituitary Tumor** | Sellar region tumor, often benign |
 | 🟢 **No Tumor** | Normal brain parenchyma |
 
-### 🔥 Key Features
+## 🔥 Key Features
 
-- ✅ **Deep Learning Classification** - EfficientNetB0 CNN model
-- ✅ **Grad-CAM Explainability** - Color-coded heatmaps showing where the model looks (Red/Yellow = High Attention)
-- ✅ **AI-Generated Clinical Reports** - Powered by Anthropic Claude API
-- ✅ **Interactive UI** - Upload MRI or test with sample images
-- ✅ **Download Reports** - Export JSON results
+- ✅ **Deep Learning Classification** using EfficientNetB0
+- ✅ **Grad-CAM Explainability** with visual attention heatmaps
+- ✅ **AI-Generated Clinical Reports** powered by Anthropic Claude
+- ✅ **Interactive Web Interface** with image upload and sample MRI scans
+- ✅ **Downloadable Prediction Reports** in JSON format
 
 ---
 
 ## 🚀 Live Demo
 
-**Test the application now:** 👉 [[https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/)]([https://hafeez-brain-tumor-prediction.streamlit.app/](https://brain-tumor-prediction-mri-classifier.streamlit.app/))
+**Launch NeuroScan AI:**
+
+### 👉 https://brain-tumor-prediction-mri-classifier.streamlit.app/
 
 ### Quick Test Steps:
 1. Select a sample image from the sidebar (Glioma, Meningioma, etc.)
@@ -52,6 +53,7 @@ NeuroScan AI is an interactive clinical decision support tool that uses deep lea
 └─────────────┘ └─────────────────┘ └────────┬────────┘
 │
 ▼
+
 ┌─────────────┐ ┌─────────────────┐ ┌─────────────────┐
 │ Clinical │◀────│ Claude AI │◀────│ Grad-CAM │
 │ Report │ │ (Text Gen) │ │ (Heatmap) │
